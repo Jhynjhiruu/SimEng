@@ -6,6 +6,7 @@
 
 #include "simeng/Core.hh"
 #include "simeng/CoreInstance.hh"
+#include "simeng/GDBStub.hh"
 #include "simeng/config/SimInfo.hh"
 #include "simeng/memory/MemoryInterface.hh"
 #include "simeng/version.hh"
@@ -41,6 +42,7 @@ int main(int argc, char** argv) {
   std::cout << "[SimEng] \tCompile options: " SIMENG_COMPILE_OPTIONS
             << std::endl;
   std::cout << "[SimEng] \tTest suite: " SIMENG_ENABLE_TESTS << std::endl;
+  std::cout << "[SimEng] \tGDB stub enabled: " SIMENG_ENABLE_GDB << std::endl;
   std::cout << std::endl;
 
   // Create the instance of the core to be simulated
@@ -119,7 +121,13 @@ int main(int argc, char** argv) {
   std::cout << "[SimEng] Starting...\n" << std::endl;
   uint64_t iterations = 0;
   auto startTime = std::chrono::high_resolution_clock::now();
+
+#ifdef GDB_ENABLED
+  auto GDBStub = simeng::GDBStub(*coreInstance);
+  iterations = GDBStub.run();
+#else
   iterations = simulate(*core, *dataMemory, *instructionMemory);
+#endif
 
   // Get timing information
   auto endTime = std::chrono::high_resolution_clock::now();

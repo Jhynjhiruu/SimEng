@@ -39,6 +39,9 @@ class Core : public simeng::Core {
   /** Retrieve a map of statistics to report. */
   std::map<std::string, std::string> getStats() const override;
 
+  /** Retrieve the program counter. */
+  const uint64_t getProgramCounter() const override;
+
  private:
   /** Execute an instruction. */
   void execute(std::shared_ptr<Instruction>& uop);

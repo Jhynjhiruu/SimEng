@@ -271,5 +271,7 @@ void FetchUnit::flushLoopBuffer() {
   loopBoundaryAddress_ = 0;
 }
 
+const uint64_t FetchUnit::getPC() const { return pc_; }
+
 }  // namespace pipeline
 }  // namespace simeng

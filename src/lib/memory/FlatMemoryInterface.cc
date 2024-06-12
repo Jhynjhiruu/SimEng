@@ -47,6 +47,8 @@ void FlatMemoryInterface::clearCompletedReads() { completedReads_.clear(); }
 
 bool FlatMemoryInterface::hasPendingRequests() const { return false; }
 
+char* FlatMemoryInterface::getMemoryPointer() const { return memory_; }
+
 void FlatMemoryInterface::tick() {}
 
 }  // namespace memory

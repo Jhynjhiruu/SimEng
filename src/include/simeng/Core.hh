@@ -53,6 +53,9 @@ class Core {
     return (ticks_ / clockFrequency_);
   }
 
+  /** Retrieve the program counter. */
+  virtual const uint64_t getProgramCounter() const = 0;
+
  protected:
   /** Apply changes to the process state. */
   void applyStateChange(const arch::ProcessStateChange& change) const {
