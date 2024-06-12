@@ -1,5 +1,7 @@
 #pragma once
 
+#include <optional>
+
 #include "simeng/CoreInstance.hh"
 
 enum AckMode {
@@ -14,7 +16,14 @@ enum BreakpointType {
   WriteWP,
   ReadWP,
   AccessWP,
-  StepBP,
+  SWStepBP,
+  HWStepBP
+};
+
+struct Breakpoint {
+  BreakpointType type;
+  uint64_t addr;
+  unsigned int kind;
 };
 
 namespace simeng {
@@ -25,7 +34,7 @@ namespace simeng {
 class GDBStub {
  public:
   /** Construct a GDBStub with a reference to a CoreInstance. */
-  GDBStub(simeng::CoreInstance& coreInstance);
+  GDBStub(simeng::CoreInstance& coreInstance, bool verbose, uint16_t port);
 
   /** Run the GDBStub using the CoreInstance. This hands over execution to the
    * stub, allowing it to control the emulation core, ready for a GDB client
@@ -36,7 +45,13 @@ class GDBStub {
   /** The CoreInstance used for the simulation. */
   simeng::CoreInstance& coreInstance_;
 
-  /** Boolean for whether to send and handle acknowledgements. */
+  /** Whether to print verbose messages or not */
+  bool verbose_;
+
+  /** The port to listen on */
+  uint16_t port_;
+
+  /** Enum for whether to send and handle acknowledgements. */
   AckMode ack_mode = Enabled;
 
   /** The last response sent to the client, in case it needs retransmitting.
@@ -50,13 +65,19 @@ class GDBStub {
   uint64_t iterations;
 
   /** Currently active breakpoints */
-  std::vector<std::tuple<BreakpointType, uint64_t, unsigned int>> breakpoints;
+  std::vector<Breakpoint> breakpoints;
+
+  /** Breakpoints for a step operation */
+  std::vector<Breakpoint> step_breakpoints;
+
+  /** Run until a breakpoint or end-of-program is reached */
+  std::string runUntilStop();
 
   /** Handle a ? query */
   std::string handleHaltReason();
 
-  /** Run until a breakpoint or end-of-program is reached */
-  std::string handleContinue();
+  /** Continue program */
+  std::string handleContinue(const std::string& addr);
 
   /** Read all registers */
   std::string handleReadRegisters();
@@ -70,11 +91,20 @@ class GDBStub {
   /** Handle general set packets, e.g. QStartNoAckMode */
   std::string handleSet(const std::string& set);
 
+  /** Single step */
+  std::string handleStep(const std::string& addr);
+
   /** Handle removing a breakpoint */
   std::string handleRemoveBreakpoint(const std::string& raw_params);
 
   /** Handle adding a breakpoint */
   std::string handleAddBreakpoint(const std::string& raw_params);
+
+  /** Decode a packet, handling escape sequences and verifying the checksum */
+  std::optional<std::string> decodePacket(const std::string& encodedPacket);
+
+  /** Encode a packet, handling escape sequences and calculating the checksum */
+  std::string encodePacket(const std::string& response);
 
   /** Send a response to the client, storing it in case it needs
    * retransmitting.

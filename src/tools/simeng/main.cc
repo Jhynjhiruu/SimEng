@@ -1,3 +1,5 @@
+#include <getopt.h>
+
 #include <chrono>
 #include <cmath>
 #include <iomanip>
@@ -44,6 +46,98 @@ int main(int argc, char** argv) {
   std::cout << "[SimEng] \tTest suite: " SIMENG_ENABLE_TESTS << std::endl;
   std::cout << "[SimEng] \tGDB stub enabled: " SIMENG_ENABLE_GDB << std::endl;
   std::cout << std::endl;
+
+  // Parse options first using getopt_long
+  auto gdb_verbose = false;
+  uint16_t gdb_port = 2424;
+  auto use_gdb = false;
+
+  const std::string prog_name = argv[0];
+
+  while (true) {
+    static const struct option long_options[] = {
+        {"gdb-verbose", no_argument, nullptr, 'v'},
+        {"gdb-port", required_argument, nullptr, 'p'},
+        {"use-gdb", no_argument, nullptr, 'g'},
+        {"help", no_argument, nullptr, 'h'},
+        {0, 0, 0, 0}};
+
+    int option_index = 0;
+
+    const int c =
+        getopt_long(argc, argv, "gvp:h?", long_options, &option_index);
+
+    if (c == -1) {
+      break;
+    }
+
+    switch (c) {
+      case '0': {
+      }
+
+      case 'g': {
+        use_gdb = true;
+        break;
+      }
+
+      case 'v': {
+        use_gdb = true;
+        gdb_verbose = true;
+        break;
+      }
+
+      case 'p': {
+        use_gdb = true;
+
+        int port;
+        try {
+          port = std::stoi(optarg);
+        } catch (const std::exception& e) {
+          std::cerr << "[SimEng] Invalid port number: " << optarg << std::endl;
+          exit(EXIT_FAILURE);
+        }
+
+        if ((port < 0) || (port > UINT16_MAX)) {
+          std::cerr << "[SimEng] Port out of range: " << port << std::endl;
+          exit(EXIT_FAILURE);
+        }
+
+        gdb_port = static_cast<uint16_t>(port);
+        break;
+      }
+
+      case 'h':
+      case '?': {
+        std::cout << prog_name << " usage:\n"
+                  << std::endl
+                  << "\t--use-gdb,     -g     : enable GDB "
+                     "stub"
+                  << std::endl
+                  << "\t--gdb-verbose, -v     : print verbose "
+                     "communication info (implies --use-gdb)"
+                  << std::endl
+                  << "\t--gdb-port,    -p port: listen on "
+                     "port <port> (default: 2424, implies --use-gdb)"
+                  << std::endl
+                  << "\t--help,        -h -?  : "
+                     "show this help"
+                  << std::endl;
+
+        exit(EXIT_FAILURE);
+      }
+
+      default: {
+        std::cerr << "[SimEng] Ignoring unrecognised option '" << c << "'"
+                  << std::endl;
+        break;
+      }
+    }
+  }
+
+  // continue argument parsing as usual
+  // argv[0] will be incorrect, but that's not used here
+  argc -= optind - 1;
+  argv += optind - 1;
 
   // Create the instance of the core to be simulated
   std::unique_ptr<simeng::CoreInstance> coreInstance;
@@ -122,12 +216,12 @@ int main(int argc, char** argv) {
   uint64_t iterations = 0;
   auto startTime = std::chrono::high_resolution_clock::now();
 
-#ifdef GDB_ENABLED
-  auto GDBStub = simeng::GDBStub(*coreInstance);
-  iterations = GDBStub.run();
-#else
-  iterations = simulate(*core, *dataMemory, *instructionMemory);
-#endif
+  if (use_gdb) {
+    auto GDBStub = simeng::GDBStub(*coreInstance, gdb_verbose, gdb_port);
+    iterations = GDBStub.run();
+  } else {
+    iterations = simulate(*core, *dataMemory, *instructionMemory);
+  }
 
   // Get timing information
   auto endTime = std::chrono::high_resolution_clock::now();
@@ -145,9 +239,13 @@ int main(int argc, char** argv) {
     std::cout << "[SimEng] " << key << ": " << value << std::endl;
   }
   std::cout << std::endl;
-  std::cout << "[SimEng] Finished " << iterations << " ticks in " << duration
-            << "ms (" << std::round(khz) << " kHz, " << std::setprecision(2)
-            << mips << " MIPS)" << std::endl;
+
+  // Timing stats are useless when using GDB
+  if (!use_gdb) {
+    std::cout << "[SimEng] Finished " << iterations << " ticks in " << duration
+              << "ms (" << std::round(khz) << " kHz, " << std::setprecision(2)
+              << mips << " MIPS)" << std::endl;
+  }
 
 // Print build metadata and core statistics in YAML format
 // to facilitate parsing. Print "YAML-SEQ" to indicate beginning

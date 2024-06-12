@@ -56,6 +56,9 @@ class Core {
   /** Retrieve the program counter. */
   virtual const uint64_t getProgramCounter() const = 0;
 
+  /** Retrieve the ISA instance. */
+  const arch::Architecture& getISA() const { return isa_; }
+
  protected:
   /** Apply changes to the process state. */
   void applyStateChange(const arch::ProcessStateChange& change) const {
