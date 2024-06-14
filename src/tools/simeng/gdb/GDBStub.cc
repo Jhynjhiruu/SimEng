@@ -58,13 +58,36 @@ std::string int_to_hex_ne(T i) {
   return rv;
 }
 
+template <typename T>
+std::optional<T> hex_to_int_ne(const std::string& str) {
+  if (str.size() != sizeof(T) * 2) {
+    return std::nullopt;
+  }
+
+  uint8_t bytes[sizeof(T)];
+  try {
+    for (size_t i = 0; i < sizeof(T); i++) {
+      bytes[i] = std::stoi(str.substr(i * 2, 2), nullptr, 16);
+    }
+  } catch (const std::exception& e) {
+    return std::nullopt;
+  }
+
+  T rv;
+
+  memcpy(&rv, bytes, sizeof(T));
+
+  return rv;
+}
+
 const SupportedFeature supported_features[] = {
     {
         "QStartNoAckMode",
         std::nullopt,
     },
     {"PacketSize", int_to_hex(BUF_SIZE - 10)},
-    {"hwbreak", std::nullopt}};
+    {"hwbreak", std::nullopt},
+    {"qXfer:features:read", std::nullopt}};
 
 template <typename T = uint16_t>
 std::string formatSignal(
@@ -171,7 +194,9 @@ uint64_t GDBStub::run() {
 
   char buffer[BUF_SIZE];
 
-  while (true) {
+  auto running = true;
+
+  while (running) {
     const ssize_t bytesRead = read(connection, buffer, sizeof(buffer));
 
     if (bytesRead == 0) {
@@ -281,8 +306,29 @@ uint64_t GDBStub::run() {
           break;
         }
 
+        case 'G': {
+          rawResponse = handleWriteRegisters(commandParams);
+          break;
+        }
+
+        case 'k': {
+          if (verbose_) {
+            std::cout << CYAN
+                      << "[SimEng:GDBStub]    Received kill request from "
+                         "client, exiting"
+                      << RESET << std::endl;
+          }
+          running = false;
+          continue;
+        }
+
         case 'm': {
           rawResponse = handleReadMemory(commandParams);
+          break;
+        }
+
+        case 'M': {
+          rawResponse = handleWriteMemory(commandParams);
           break;
         }
 
@@ -327,7 +373,7 @@ uint64_t GDBStub::run() {
   return iterations;
 }
 
-std::string GDBStub::runUntilStop() {
+std::string GDBStub::runUntilStop(const std::optional<uint64_t>& step_from) {
   const auto core = coreInstance_.getCore();
   const auto dataMemory = coreInstance_.getDataMemory();
 
@@ -339,21 +385,17 @@ std::string GDBStub::runUntilStop() {
 
     const auto pc = core->getProgramCounter();
 
-    for (const auto [type, addr, kind] : step_breakpoints) {
-      if (addr == pc) {
-        // step breakpoints should only be hit once
-        step_breakpoints.clear();
-
-        return formatSignal(
-            SIGTRAP,
-            {std::make_tuple((type == SWStepBP) ? "swbreak" : "hwbreak", "")});
+    // only check breakpoints if we're not single-stepping
+    if (step_from) {
+      if (pc != *step_from) {
+        return formatSignal(SIGTRAP, {std::make_tuple("hwbreak", "")});
       }
-    }
-
-    for (const auto [type, addr, kind] : breakpoints) {
-      if (type == HardwareBP) {
-        if (addr == pc) {
-          return formatSignal(SIGTRAP, {std::make_tuple("hwbreak", "")});
+    } else {
+      for (const auto [type, addr, kind] : breakpoints) {
+        if (type == HardwareBP) {
+          if (addr == pc) {
+            return formatSignal(SIGTRAP, {std::make_tuple("hwbreak", "")});
+          }
         }
       }
     }
@@ -375,11 +417,14 @@ std::string GDBStub::handleContinue(const std::string& addr) {
 std::string GDBStub::handleReadRegisters() {
   const auto core = coreInstance_.getCore();
   const auto& registers = core->getArchitecturalRegisterFileSet();
+  const auto& isa = core->getISA();
+
+  const auto& reg_layout = simeng::config::SimInfo::getPhysRegStruct();
 
   std::string rv;
 
   // TODO: support register configurations other than 32 64-bit GPRs
-  for (auto i = 0; i < 32; i++) {
+  for (uint16_t i = 0; i < 32; i++) {
     const auto value = registers.get({0, i}).get<uint64_t>();
     rv += int_to_hex_ne(value);
   }
@@ -391,6 +436,52 @@ std::string GDBStub::handleReadRegisters() {
   rv += int_to_hex_ne(registers.get({3, 0}).zeroExtend(1, 4).get<uint32_t>());
 
   return rv;
+}
+
+std::string GDBStub::handleWriteRegisters(const std::string& register_values) {
+  auto core = coreInstance_.getCore();
+  auto& registers = core->getArchitecturalRegisterFileSet();
+  const auto& isa = core->getISA();
+
+  const auto& reg_layout = simeng::config::SimInfo::getPhysRegStruct();
+
+  const auto error = [&] {
+    if (verbose_) {
+      std::cerr << RED << "[SimEng:GDBStub] Invalid register set write" << RESET
+                << std::endl;
+    }
+    return formatError("invalid register set write");
+  };
+
+  // TODO: support register configurations other than 32 64-bit GPRs
+
+  for (uint16_t i = 0; i < 32; i++) {
+    const auto value =
+        hex_to_int_ne<uint64_t>(register_values.substr(i * 16, 16));
+    if (value) {
+      registers.set({0, i}, RegisterValue(*value));
+    } else {
+      return error();
+    }
+  }
+
+  // pc
+  const auto pc = hex_to_int_ne<uint64_t>(register_values.substr(512, 16));
+  if (pc) {
+    core->setProgramCounter(*pc);
+  } else {
+    return error();
+  }
+
+  // NZCV
+  const auto nzcv = hex_to_int_ne<uint32_t>(register_values.substr(528, 8));
+  if (nzcv) {
+    registers.set({3, 0}, RegisterValue(static_cast<uint8_t>(*nzcv)));
+  } else {
+    return error();
+  }
+
+  return "OK";
 }
 
 std::string GDBStub::handleReadMemory(const std::string& raw_params) {
@@ -450,6 +541,90 @@ std::string GDBStub::handleReadMemory(const std::string& raw_params) {
 
   return rv;
 }
+std::string GDBStub::handleWriteMemory(const std::string& raw_params) {
+  const auto data = splitBy(raw_params, ':');
+
+  if (data.size() != 2) {
+    if (verbose_) {
+      std::cerr
+          << RED
+          << "[SimEng:GDBStub] Invalid number of parameters to a memory write"
+          << RESET << std::endl;
+    }
+    return formatError(0);
+  }
+
+  const auto params = splitBy(data[0], ',');
+
+  if (params.size() != 2) {
+    if (verbose_) {
+      std::cerr
+          << RED
+          << "[SimEng:GDBStub] Invalid number of parameters to a memory write"
+          << RESET << std::endl;
+    }
+    return formatError(1);
+  }
+
+  unsigned long long startAddress;
+  unsigned long long numberOfBytes;
+
+  try {
+    startAddress = std::stoull(params[0], nullptr, 16);
+  } catch (const std::exception& e) {
+    if (verbose_) {
+      std::cerr << RED << "[SimEng:GDBStub] Memory write address invalid"
+                << RESET << std::endl;
+    }
+    return formatError(2);
+  };
+
+  try {
+    numberOfBytes = std::stoull(params[1], nullptr, 16);
+  } catch (const std::exception& e) {
+    if (verbose_) {
+      std::cerr << RED << "[SimEng:GDBStub] Memory write length invalid"
+                << RESET << std::endl;
+    }
+    return formatError(3);
+  };
+
+  if (data[1].size() != numberOfBytes * 2) {
+    if (verbose_) {
+      std::cerr << RED << "[SimEng:GDBStub] Memory write data length invalid"
+                << RESET << std::endl;
+    }
+    return formatError(4);
+  }
+
+  char* const memoryPointer =
+      coreInstance_.getDataMemory()->getMemoryPointer() + startAddress;
+
+  // TODO: stack overflow on large writes?
+  uint8_t buffer[numberOfBytes];
+
+  try {
+    for (size_t i = 0; i < numberOfBytes; i++) {
+      buffer[i] = std::stoi(data[1].substr(i * 2, 2), nullptr, 16);
+    }
+  } catch (const std::exception& e) {
+    if (verbose_) {
+      std::cerr << RED << "[SimEng:GDBStub] Memory write data invalid" << RESET
+                << std::endl;
+    }
+    return formatError(5);
+  }
+
+  if (verbose_) {
+    std::cout << "[SimEng:GDBStub]    Writing " << numberOfBytes
+              << " bytes to memory address " << int_to_hex(startAddress)
+              << std::endl;
+  }
+
+  memcpy(memoryPointer, buffer, numberOfBytes);
+
+  return "OK";
+}
 
 std::string GDBStub::handleQuery(const std::string& query) {
   // parse out the query
@@ -489,6 +664,25 @@ std::string GDBStub::handleQuery(const std::string& query) {
         }
 
         return features;
+      } else {
+        if (verbose_) {
+          std::cerr << RED
+                    << "[SimEng:GDBStub] 'Supported' query requires parameters"
+                    << RESET << std::endl;
+        }
+        return "";
+      }
+    } else if (query_type == "Xfer") {
+      if (query_params) {
+        const auto params = splitBy(*query_params, ':');
+
+        const auto transfer_type = params[0];
+
+        if (transfer_type == "features") {
+          return queryFeatures(params);
+        }
+
+        return "l";
       } else {
         if (verbose_) {
           std::cerr << RED
@@ -548,42 +742,12 @@ std::string GDBStub::handleSet(const std::string& set) {
 }
 
 std::string GDBStub::handleStep(const std::string& addr) {
-  auto [op, size] = getCurrentInstruction(coreInstance_);
+  // auto [op, size] = getCurrentInstruction(coreInstance_);
 
   const auto core = coreInstance_.getCore();
   const auto pc = core->getProgramCounter();
-  const auto& registerFileSet = core->getArchitecturalRegisterFileSet();
 
-  if (op->isBranch()) {
-    // Issue
-    auto registers = op->getSourceRegisters();
-    for (size_t i = 0; i < registers.size(); i++) {
-      auto reg = registers[i];
-      if (!op->isOperandReady(i)) {
-        op->supplyOperand(i, registerFileSet.get(reg));
-      }
-    }
-
-    // we could look at the branch type to determine whether to put breakpoints
-    // at both targets (the branch target and the next instruction) or not, but
-    // there's not much point
-    // TODO: this will probably break with delay slots like in MIPS
-
-    // is this necessary? we need the real branch address
-    op->execute();
-
-    step_breakpoints.push_back(Breakpoint{HWStepBP, op->getBranchAddress(), 0});
-    step_breakpoints.push_back(Breakpoint{HWStepBP, pc + size, 0});
-  } else {
-    if (verbose_) {
-      std::cout << GREEN
-                << "[SimEng:GDBStub] Step breakpoint: " << int_to_hex(pc + size)
-                << RESET << std::endl;
-    }
-    step_breakpoints.push_back(Breakpoint{HWStepBP, pc + size, 0});
-  }
-
-  return runUntilStop();
+  return runUntilStop(pc);
 }
 
 std::string GDBStub::handleRemoveBreakpoint(const std::string& raw_params) {
@@ -721,6 +885,64 @@ std::string GDBStub::handleAddBreakpoint(const std::string& raw_params) {
     return "OK";
   } else {
     return "";
+  }
+}
+
+std::string GDBStub::queryFeatures(const std::vector<std::string>& params) {
+  if (params.size() != 4) {
+    if (verbose_) {
+      std::cerr << RED
+                << "[SimEng:GDBStub] Received transfer query with incorrect "
+                   "number of parameters"
+                << RESET << std::endl;
+    }
+    return formatError(
+        "invalid number of parameters to features transfer query");
+  }
+
+  const auto& type = params[1];
+  const auto& annex = params[2];
+  const auto& where = splitBy(params[3], ',');
+  if (where.size() != 2) {
+    if (verbose_) {
+      std::cerr << RED
+                << "[SimEng:GDBStub] Received transfer query with incorrect "
+                   "offset/length info"
+                << RESET << std::endl;
+    }
+    return formatError(
+        "invalid offset/length info in features transfer request");
+  }
+
+  const auto offset = where[0];
+  const auto length = where[1];
+
+  if (type != "read") {
+    if (verbose_) {
+      std::cerr
+          << RED
+          << "[SimEng:GDBStub] Received unsupported non-read transfer query"
+          << RESET << std::endl;
+    }
+    return formatError("invalid non-read features transfer query");
+  }
+
+  if (annex == "target.xml") {
+    // TODO: supply target info to GDB
+
+    std::cerr << RED
+              << "[SimEng:GDBStub] Supplying target.xml not yet supported"
+              << RESET << std::endl;
+
+    return "l";
+  } else {
+    if (verbose_) {
+      std::cerr << RED
+                << "[SimEng:GDBStub] Received unsupported read transfer query "
+                   "of file '"
+                << annex << "'" << RESET << std::endl;
+    }
+    return formatError("invalid file for features transfer query");
   }
 }
 

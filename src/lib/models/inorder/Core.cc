@@ -138,6 +138,10 @@ const ArchitecturalRegisterFileSet& Core::getArchitecturalRegisterFileSet()
   return architecturalRegisterFileSet_;
 }
 
+ArchitecturalRegisterFileSet& Core::getArchitecturalRegisterFileSet() {
+  return architecturalRegisterFileSet_;
+}
+
 uint64_t Core::getInstructionsRetiredCount() const {
   return writebackUnit_.getInstructionsWrittenCount();
 }
@@ -316,6 +320,8 @@ void Core::readRegisters() {
 }
 
 const uint64_t Core::getProgramCounter() const { return fetchUnit_.getPC(); }
+
+void Core::setProgramCounter(uint64_t pc) { fetchUnit_.setPC(pc); }
 
 }  // namespace inorder
 }  // namespace models

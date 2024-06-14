@@ -199,6 +199,10 @@ const ArchitecturalRegisterFileSet& Core::getArchitecturalRegisterFileSet()
   return mappedRegisterFileSet_;
 }
 
+ArchitecturalRegisterFileSet& Core::getArchitecturalRegisterFileSet() {
+  return mappedRegisterFileSet_;
+}
+
 uint64_t Core::getInstructionsRetiredCount() const {
   return reorderBuffer_.getInstructionsCommittedCount();
 }
@@ -379,6 +383,8 @@ void Core::flushIfNeeded() {
 }
 
 const uint64_t Core::getProgramCounter() const { return fetchUnit_.getPC(); }
+
+void Core::setProgramCounter(uint64_t pc) { fetchUnit_.setPC(pc); }
 
 }  // namespace outoforder
 }  // namespace models

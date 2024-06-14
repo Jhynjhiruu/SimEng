@@ -41,6 +41,9 @@ class Core {
   virtual const ArchitecturalRegisterFileSet& getArchitecturalRegisterFileSet()
       const = 0;
 
+  /** Mutably retrieve the architectural register file set. */
+  virtual ArchitecturalRegisterFileSet& getArchitecturalRegisterFileSet() = 0;
+
   /** Retrieve the number of instructions retired. */
   virtual uint64_t getInstructionsRetiredCount() const = 0;
 
@@ -55,6 +58,9 @@ class Core {
 
   /** Retrieve the program counter. */
   virtual const uint64_t getProgramCounter() const = 0;
+
+  /** Set the program counter. */
+  virtual void setProgramCounter(uint64_t pc) = 0;
 
   /** Retrieve the ISA instance. */
   const arch::Architecture& getISA() const { return isa_; }

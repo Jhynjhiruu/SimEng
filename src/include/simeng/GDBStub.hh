@@ -71,7 +71,8 @@ class GDBStub {
   std::vector<Breakpoint> step_breakpoints;
 
   /** Run until a breakpoint or end-of-program is reached */
-  std::string runUntilStop();
+  std::string runUntilStop(
+      const std::optional<uint64_t>& step_from = std::nullopt);
 
   /** Handle a ? query */
   std::string handleHaltReason();
@@ -82,8 +83,14 @@ class GDBStub {
   /** Read all registers */
   std::string handleReadRegisters();
 
+  /** Write all registers */
+  std::string handleWriteRegisters(const std::string& register_values);
+
   /** Read memory */
   std::string handleReadMemory(const std::string& raw_params);
+
+  /** Write memory */
+  std::string handleWriteMemory(const std::string& raw_params);
 
   /** Handle general query packets, e.g. qSupported */
   std::string handleQuery(const std::string& query);
@@ -99,6 +106,9 @@ class GDBStub {
 
   /** Handle adding a breakpoint */
   std::string handleAddBreakpoint(const std::string& raw_params);
+
+  /** Handle Xfer:features query */
+  std::string queryFeatures(const std::vector<std::string>& params);
 
   /** Decode a packet, handling escape sequences and verifying the checksum */
   std::optional<std::string> decodePacket(const std::string& encodedPacket);

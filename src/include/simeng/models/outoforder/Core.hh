@@ -43,6 +43,9 @@ class Core : public simeng::Core {
   const ArchitecturalRegisterFileSet& getArchitecturalRegisterFileSet()
       const override;
 
+  /** Mutably retrieve the architectural register file set. */
+  ArchitecturalRegisterFileSet& getArchitecturalRegisterFileSet() override;
+
   /** Retrieve the number of instructions retired. */
   uint64_t getInstructionsRetiredCount() const override;
 
@@ -51,6 +54,9 @@ class Core : public simeng::Core {
 
   /** Retrieve the program counter. */
   const uint64_t getProgramCounter() const override;
+
+  /** Set the program counter. */
+  void setProgramCounter(uint64_t pc) override;
 
  private:
   /** Raise an exception to the core, providing the generating instruction. */

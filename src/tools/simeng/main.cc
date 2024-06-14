@@ -47,6 +47,8 @@ int main(int argc, char** argv) {
   std::cout << "[SimEng] \tGDB stub enabled: " SIMENG_ENABLE_GDB << std::endl;
   std::cout << std::endl;
 
+#if GDB_ENABLED
+
   // Parse options first using getopt_long
   auto gdb_verbose = false;
   uint16_t gdb_port = 2424;
@@ -139,6 +141,8 @@ int main(int argc, char** argv) {
   argc -= optind - 1;
   argv += optind - 1;
 
+#endif
+
   // Create the instance of the core to be simulated
   std::unique_ptr<simeng::CoreInstance> coreInstance;
   std::string executablePath = "";
@@ -216,12 +220,17 @@ int main(int argc, char** argv) {
   uint64_t iterations = 0;
   auto startTime = std::chrono::high_resolution_clock::now();
 
+#if GDB_ENABLED
+
   if (use_gdb) {
     auto GDBStub = simeng::GDBStub(*coreInstance, gdb_verbose, gdb_port);
     iterations = GDBStub.run();
   } else {
+#endif
     iterations = simulate(*core, *dataMemory, *instructionMemory);
+#if GDB_ENABLED
   }
+#endif
 
   // Get timing information
   auto endTime = std::chrono::high_resolution_clock::now();
@@ -240,12 +249,16 @@ int main(int argc, char** argv) {
   }
   std::cout << std::endl;
 
+#if GDB_ENABLED
   // Timing stats are useless when using GDB
   if (!use_gdb) {
+#endif
     std::cout << "[SimEng] Finished " << iterations << " ticks in " << duration
               << "ms (" << std::round(khz) << " kHz, " << std::setprecision(2)
               << mips << " MIPS)" << std::endl;
+#if GDB_ENABLED
   }
+#endif
 
 // Print build metadata and core statistics in YAML format
 // to facilitate parsing. Print "YAML-SEQ" to indicate beginning
