@@ -28,3 +28,5 @@ CMakeFiles/
 build.sh
 test.c
 *.elf
+sme_matmul_fp32
+stream-gcc10.3.0-armv8.4-a+sve

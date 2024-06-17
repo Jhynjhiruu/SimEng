@@ -81,6 +81,10 @@ class Architecture {
   virtual void updateSystemTimerRegisters(RegisterFileSet* regFile,
                                           const uint64_t iterations) const = 0;
 
+  /** Get the architecture-specific vector size (currently only for (S)VL on
+   * AArch64) */
+  virtual const std::tuple<uint64_t, uint64_t> getVectorSize() const = 0;
+
  protected:
   /** A Capstone decoding library handle, for decoding instructions. */
   csh capstoneHandle_;

@@ -52,6 +52,12 @@ class Architecture : public arch::Architecture {
   void updateSystemTimerRegisters(RegisterFileSet* regFile,
                                   const uint64_t iterations) const override;
 
+  /** Get the architecture-specific vector size (currently only for (S)VL on
+   * AArch64) */
+  const std::tuple<uint64_t, uint64_t> getVectorSize() const override {
+    return std::make_tuple(0, 0);
+  }
+
  private:
   /** Retrieve an ExecutionInfo object for the requested instruction. If a
    * opcode-based override has been defined for the latency and/or

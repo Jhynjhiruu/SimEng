@@ -179,6 +179,248 @@ std::tuple<std::shared_ptr<simeng::Instruction>, uint8_t> getCurrentInstruction(
   return std::make_tuple(macroOp[0], bytesRead);
 }
 
+const auto target_spec = std::string(R"(<?xml version="1.0"?>
+<!-- Copyright (C) 2009-2024 Free Software Foundation, Inc.
+     Contributed by ARM Ltd.
+
+     Copying and distribution of this file, with or without modification,
+     are permitted in any medium without royalty provided the copyright
+     notice and this notice are preserved.  -->
+
+<!DOCTYPE feature SYSTEM "gdb-target.dtd">
+<target version="1.0">
+<architecture>aarch64</architecture>
+<feature name="org.gnu.gdb.aarch64.core">
+  <reg name="x0" bitsize="64"/>
+  <reg name="x1" bitsize="64"/>
+  <reg name="x2" bitsize="64"/>
+  <reg name="x3" bitsize="64"/>
+  <reg name="x4" bitsize="64"/>
+  <reg name="x5" bitsize="64"/>
+  <reg name="x6" bitsize="64"/>
+  <reg name="x7" bitsize="64"/>
+  <reg name="x8" bitsize="64"/>
+  <reg name="x9" bitsize="64"/>
+  <reg name="x10" bitsize="64"/>
+  <reg name="x11" bitsize="64"/>
+  <reg name="x12" bitsize="64"/>
+  <reg name="x13" bitsize="64"/>
+  <reg name="x14" bitsize="64"/>
+  <reg name="x15" bitsize="64"/>
+  <reg name="x16" bitsize="64"/>
+  <reg name="x17" bitsize="64"/>
+  <reg name="x18" bitsize="64"/>
+  <reg name="x19" bitsize="64"/>
+  <reg name="x20" bitsize="64"/>
+  <reg name="x21" bitsize="64"/>
+  <reg name="x22" bitsize="64"/>
+  <reg name="x23" bitsize="64"/>
+  <reg name="x24" bitsize="64"/>
+  <reg name="x25" bitsize="64"/>
+  <reg name="x26" bitsize="64"/>
+  <reg name="x27" bitsize="64"/>
+  <reg name="x28" bitsize="64"/>
+  <reg name="x29" bitsize="64"/>
+  <reg name="x30" bitsize="64"/>
+  <reg name="sp" bitsize="64" type="data_ptr"/>
+
+  <reg name="pc" bitsize="64" type="code_ptr"/>
+
+  <flags id="cpsr_flags" size="4">
+    <!-- Stack Pointer.  -->
+    <field name="SP" start="0" end="0"/>
+
+    <!-- Exception Level.  -->
+    <field name="EL" start="2" end="3"/>
+    <!-- Execution state.  -->
+    <field name="nRW" start="4" end="4"/>
+
+    <!-- FIQ interrupt mask.  -->
+    <field name="F" start="6" end="6"/>
+    <!-- IRQ interrupt mask.  -->
+    <field name="I" start="7" end="7"/>
+    <!-- SError interrupt mask.  -->
+    <field name="A" start="8" end="8"/>
+    <!-- Debug exception mask.  -->
+    <field name="D" start="9" end="9"/>
+
+    <!-- ARMv8.5-A: Branch Target Identification BTYPE.  -->
+    <field name="BTYPE" start="10" end="11"/>
+
+    <!-- ARMv8.0-A: Speculative Store Bypass.  -->
+    <field name="SSBS" start="12" end="12"/>
+
+    <!-- Illegal Execution state.  -->
+    <field name="IL" start="20" end="20"/>
+    <!-- Software Step.  -->
+    <field name="SS" start="21" end="21"/>
+    <!-- ARMv8.1-A: Privileged Access Never.  -->
+    <field name="PAN" start="22" end="22"/>
+    <!-- ARMv8.2-A: User Access Override.  -->
+    <field name="UAO" start="23" end="23"/>
+    <!-- ARMv8.4-A: Data Independent Timing.  -->
+    <field name="DIT" start="24" end="24"/>
+    <!-- ARMv8.5-A: Tag Check Override.  -->
+    <field name="TCO" start="25" end="25"/>
+
+    <!-- Overflow Condition flag.  -->
+    <field name="V" start="28" end="28"/>
+    <!-- Carry Condition flag.  -->
+    <field name="C" start="29" end="29"/>
+    <!-- Zero Condition flag.  -->
+    <field name="Z" start="30" end="30"/>
+    <!-- Negative Condition flag.  -->
+    <field name="N" start="31" end="31"/>
+  </flags>
+  <reg name="cpsr" bitsize="32" type="cpsr_flags"/>
+
+</feature>
+
+<feature name="org.gnu.gdb.aarch64.sve">
+  <vector id="svevqu" type="uint128" count="16" />
+  <vector id="svevqs" type="int128" count="16" />
+  <vector id="svevdf" type="ieee_double" count="32" />
+  <vector id="svevdu" type="uint64" count="32" />
+  <vector id="svevds" type="int64" count="32" />
+  <vector id="svevsf" type="ieee_single" count="64" />
+  <vector id="svevsu" type="uint32" count="64" />
+  <vector id="svevss" type="int32" count="64" />
+  <vector id="svevhf" type="ieee_half" count="128" />
+  <vector id="svevhu" type="uint16" count="128" />
+  <vector id="svevhs" type="int16" count="128" />
+  <vector id="svevbu" type="uint8" count="256" />
+  <vector id="svevbs" type="int8" count="256" />
+  <vector id="svep" type="uint8" count="32" />
+  <union id="svevnq">
+    <field name="u" type="svevqu" />
+    <field name="s" type="svevqs" />
+  </union>
+  <union id="svevnd">
+    <field name="f" type="svevdf" />
+    <field name="u" type="svevdu" />
+    <field name="s" type="svevds" />
+  </union>
+  <union id="svevns">
+    <field name="f" type="svevsf" />
+    <field name="u" type="svevsu" />
+    <field name="s" type="svevss" />
+  </union>
+  <union id="svevnh">
+    <field name="f" type="svevhf" />
+    <field name="u" type="svevhu" />
+    <field name="s" type="svevhs" />
+  </union>
+  <union id="svevnb">
+    <field name="u" type="svevbu" />
+    <field name="s" type="svevbs" />
+  </union>
+  <union id="svev">
+    <field name="q" type="svevnq" />
+    <field name="d" type="svevnd" />
+    <field name="s" type="svevns" />
+    <field name="h" type="svevnh" />
+    <field name="b" type="svevnb" />
+  </union>
+  <flags id="fpsr_flags" size="4">
+    <field name="IOC" start="0" end="0" />
+    <field name="DZC" start="1" end="1" />
+    <field name="OFC" start="2" end="2" />
+    <field name="UFC" start="3" end="3" />
+    <field name="IXC" start="4" end="4" />
+    <field name="IDC" start="7" end="7" />
+    <field name="QC" start="27" end="27" />
+    <field name="V" start="28" end="28" />
+    <field name="C" start="29" end="29" />
+    <field name="Z" start="30" end="30" />
+    <field name="N" start="31" end="31" />
+  </flags>
+  <flags id="fpcr_flags" size="4">
+    <field name="FIZ" start="0" end="0" />
+    <field name="AH" start="1" end="1" />
+    <field name="NEP" start="2" end="2" />
+    <field name="IOE" start="8" end="8" />
+    <field name="DZE" start="9" end="9" />
+    <field name="OFE" start="10" end="10" />
+    <field name="UFE" start="11" end="11" />
+    <field name="IXE" start="12" end="12" />
+    <field name="EBF" start="13" end="13" />
+    <field name="IDE" start="15" end="15" />
+    <field name="Len" start="16" end="18" />
+    <field name="FZ16" start="19" end="19" />
+    <field name="Stride" start="20" end="21" />
+    <field name="RMode" start="22" end="23" />
+    <field name="FZ" start="24" end="24" />
+    <field name="DN" start="25" end="25" />
+    <field name="AHP" start="26" end="26" />
+  </flags>
+  <reg name="z0" bitsize="2048" type="svev" />
+  <reg name="z1" bitsize="2048" type="svev" />
+  <reg name="z2" bitsize="2048" type="svev" />
+  <reg name="z3" bitsize="2048" type="svev" />
+  <reg name="z4" bitsize="2048" type="svev" />
+  <reg name="z5" bitsize="2048" type="svev" />
+  <reg name="z6" bitsize="2048" type="svev" />
+  <reg name="z7" bitsize="2048" type="svev" />
+  <reg name="z8" bitsize="2048" type="svev" />
+  <reg name="z9" bitsize="2048" type="svev" />
+  <reg name="z10" bitsize="2048" type="svev" />
+  <reg name="z11" bitsize="2048" type="svev" />
+  <reg name="z12" bitsize="2048" type="svev" />
+  <reg name="z13" bitsize="2048" type="svev" />
+  <reg name="z14" bitsize="2048" type="svev" />
+  <reg name="z15" bitsize="2048" type="svev" />
+  <reg name="z16" bitsize="2048" type="svev" />
+  <reg name="z17" bitsize="2048" type="svev" />
+  <reg name="z18" bitsize="2048" type="svev" />
+  <reg name="z19" bitsize="2048" type="svev" />
+  <reg name="z20" bitsize="2048" type="svev" />
+  <reg name="z21" bitsize="2048" type="svev" />
+  <reg name="z22" bitsize="2048" type="svev" />
+  <reg name="z23" bitsize="2048" type="svev" />
+  <reg name="z24" bitsize="2048" type="svev" />
+  <reg name="z25" bitsize="2048" type="svev" />
+  <reg name="z26" bitsize="2048" type="svev" />
+  <reg name="z27" bitsize="2048" type="svev" />
+  <reg name="z28" bitsize="2048" type="svev" />
+  <reg name="z29" bitsize="2048" type="svev" />
+  <reg name="z30" bitsize="2048" type="svev" />
+  <reg name="z31" bitsize="2048" type="svev" />
+  <reg name="fpsr" bitsize="32" type="fpsr_flags" />
+  <reg name="fpcr" bitsize="32" type="fpcr_flags" />
+  <reg name="p0" bitsize="256" type="svep" />
+  <reg name="p1" bitsize="256" type="svep" />
+  <reg name="p2" bitsize="256" type="svep" />
+  <reg name="p3" bitsize="256" type="svep" />
+  <reg name="p4" bitsize="256" type="svep" />
+  <reg name="p5" bitsize="256" type="svep" />
+  <reg name="p6" bitsize="256" type="svep" />
+  <reg name="p7" bitsize="256" type="svep" />
+  <reg name="p8" bitsize="256" type="svep" />
+  <reg name="p9" bitsize="256" type="svep" />
+  <reg name="p10" bitsize="256" type="svep" />
+  <reg name="p11" bitsize="256" type="svep" />
+  <reg name="p12" bitsize="256" type="svep" />
+  <reg name="p13" bitsize="256" type="svep" />
+  <reg name="p14" bitsize="256" type="svep" />
+  <reg name="p15" bitsize="256" type="svep" />
+  <reg name="ffr" bitsize="256" type="svep" />
+  <reg name="vg" bitsize="64" type="int" />
+</feature>
+
+<feature name="org.gnu.gdb.aarch64.sme">
+  <reg name="svg" bitsize="64" type="int" />
+  <flags id="svcr_flags" size="8">
+    <field name="SM" start="0" end="0" />
+    <field name="ZA" start="1" end="1" />
+  </flags>
+  <reg name="svcr" bitsize="64" type="svcr_flags" />
+  <vector id="sme_bv" type="uint8" count="256" />
+  <vector id="sme_bvv" type="sme_bv" count="16" />
+  <reg name="za" bitsize="32768" type="sme_bvv" />
+</feature>
+</target>
+)");
+
 namespace simeng {
 GDBStub::GDBStub(simeng::CoreInstance& coreInstance, bool verbose,
                  uint16_t port)
@@ -419,7 +661,7 @@ std::string GDBStub::handleReadRegisters() {
   const auto& registers = core->getArchitecturalRegisterFileSet();
   const auto& isa = core->getISA();
 
-  const auto& reg_layout = simeng::config::SimInfo::getPhysRegStruct();
+  const auto [vl, svl] = isa.getVectorSize();
 
   std::string rv;
 
@@ -434,6 +676,60 @@ std::string GDBStub::handleReadRegisters() {
 
   // NZCV
   rv += int_to_hex_ne(registers.get({3, 0}).zeroExtend(1, 4).get<uint32_t>());
+
+  /*// FPU
+  for (uint16_t i = 0; i < 32; i++) {
+    // no uint128_t support yet
+    const auto value = registers.get({1, i}).getAsVector<uint8_t>();
+    for (auto j = 0; j < 16; j++) {
+      rv += int_to_hex(value[j]);
+    }
+  }
+
+  // FPSR
+  rv += int_to_hex_ne(registers.get({4, 2}).get<uint32_t>());
+
+  // FPCR
+  rv += int_to_hex_ne(registers.get({4, 1}).get<uint32_t>());*/
+
+  // SVE
+  for (uint16_t i = 0; i < 32; i++) {
+    const auto value = registers.get({1, i}).getAsVector<uint8_t>();
+    for (auto j = 0; j < 256; j++) {
+      rv += int_to_hex(value[j]);
+    }
+  }
+
+  // FPSR (but SVE this time)
+  rv += int_to_hex_ne(registers.get({4, 2}).get<uint32_t>());
+
+  // FPCR (but SVE this time)
+  rv += int_to_hex_ne(registers.get({4, 1}).get<uint32_t>());
+
+  // Predicates and FFR
+  for (uint16_t i = 0; i < 16 + 1; i++) {
+    const auto value = registers.get({2, i}).getAsVector<uint8_t>();
+    for (auto j = 0; j < 32; j++) {
+      rv += int_to_hex(value[j]);
+    }
+  }
+
+  // VG
+  rv += int_to_hex_ne(vl / 64);
+
+  // SVG
+  rv += int_to_hex_ne(svl / 64);
+
+  // SVCR
+  rv += int_to_hex_ne(registers.get({4, 7}).get<uint64_t>());
+
+  // ZA
+  for (uint16_t i = 0; i < 16; i++) {
+    const auto value = registers.get({5, i}).getAsVector<uint8_t>();
+    for (auto j = 0; j < 256; j++) {
+      rv += int_to_hex(value[j]);
+    }
+  }
 
   return rv;
 }
@@ -913,9 +1209,31 @@ std::string GDBStub::queryFeatures(const std::vector<std::string>& params) {
     return formatError(
         "invalid offset/length info in features transfer request");
   }
+  int offset;
+  int length;
+  try {
+    offset = std::stoi(where[0], nullptr, 16);
+    length = std::stoi(where[1], nullptr, 16);
 
-  const auto offset = where[0];
-  const auto length = where[1];
+    // TODO: awful
+    if ((offset < 0) || (length < 0)) {
+      throw std::exception();
+    }
+  } catch (const std::exception& e) {
+    if (verbose_) {
+      std::cerr << RED
+                << "[SimEng:GDBStub] Invalid offset or length parameters to "
+                   "transfer query"
+                << RESET << std::endl;
+    }
+    return formatError(
+        "invalid offset or length parameters in transfer request");
+  }
+
+  const auto max_len = target_spec.size() - offset;
+  if (length > max_len) {
+    length = max_len;
+  }
 
   if (type != "read") {
     if (verbose_) {
@@ -934,7 +1252,11 @@ std::string GDBStub::queryFeatures(const std::vector<std::string>& params) {
               << "[SimEng:GDBStub] Supplying target.xml not yet supported"
               << RESET << std::endl;
 
-    return "l";
+    if (length > 1) {
+      return "m" + target_spec.substr(offset, length);
+    } else {
+      return "l";
+    }
   } else {
     if (verbose_) {
       std::cerr << RED
