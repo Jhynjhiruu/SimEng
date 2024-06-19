@@ -80,8 +80,14 @@ class GDBStub {
   /** Continue program */
   std::string handleContinue(const std::string& addr);
 
+  /** Read single register */
+  std::string handleReadRegister(const std::string& reg);
+
   /** Read all registers */
   std::string handleReadRegisters();
+
+  /** Write single register */
+  std::string handleWriteRegister(const std::string& register_value);
 
   /** Write all registers */
   std::string handleWriteRegisters(const std::string& register_values);
