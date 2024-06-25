@@ -670,9 +670,8 @@ uint64_t GDBStub::run() {
         break;
       }
 
-      sendResponse("+");
-
       if (ack_mode == Transition) {
+        sendResponse("+");
         ack_mode = Disabled;
       }
     }
