@@ -1595,7 +1595,7 @@ std::optional<std::string> GDBStub::decodePacket(
       std::cerr << RED << std::hex
                 << "[SimEng:GDBStub] Packet checksum does not match expected; "
                    "received "
-                << receivedChecksum << ", calculated " << calculatedChecksum
+                << int_to_hex(receivedChecksum) << ", calculated " << int_to_hex(calculatedChecksum)
                 << std::dec << RESET << std::endl;
     }
 
