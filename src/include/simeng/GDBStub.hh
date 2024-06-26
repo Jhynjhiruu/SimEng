@@ -26,6 +26,27 @@ struct Breakpoint {
   unsigned int kind;
 };
 
+enum ParseState {
+  ExpectStart,
+  Packet,
+  Escape,
+  Checksum,
+  Done,
+  ExtraData,
+};
+
+struct ParseResult {
+  ParseState state;
+  std::string packet;
+  uint8_t calculatedChecksum;
+  uint8_t receivedChecksum;
+  unsigned int checksumRemaining;
+
+  bool done() const { return (state == Done) || (state == ExtraData); }
+
+  bool valid() const { return calculatedChecksum == receivedChecksum; }
+};
+
 namespace simeng {
 /** A GDB server stub, allowing for remote connections from a GDB client via
  * GDB's Remote Serial Protocol (RSP) in order to debug programs running on
@@ -117,7 +138,8 @@ class GDBStub {
   std::string queryFeatures(const std::vector<std::string>& params);
 
   /** Decode a packet, handling escape sequences and verifying the checksum */
-  std::optional<std::string> decodePacket(const std::string& encodedPacket);
+  std::optional<ParseResult> decodePacket(const std::string& encodedPacket,
+                                          ParseResult result);
 
   /** Encode a packet, handling escape sequences and calculating the checksum */
   std::string encodePacket(const std::string& response);

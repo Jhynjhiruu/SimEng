@@ -65,7 +65,6 @@ class Core {
   /** Retrieve the ISA instance. */
   const arch::Architecture& getISA() const { return isa_; }
 
- protected:
   /** Apply changes to the process state. */
   void applyStateChange(const arch::ProcessStateChange& change) const {
     auto& regFile = const_cast<ArchitecturalRegisterFileSet&>(
@@ -107,6 +106,7 @@ class Core {
     }
   }
 
+ protected:
   /** A memory interface to access data. */
   memory::MemoryInterface& dataMemory_;
 

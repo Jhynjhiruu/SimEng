@@ -81,6 +81,27 @@ std::optional<T> hex_to_int_ne(const std::string& str) {
   return rv;
 }
 
+template <size_t N>
+std::optional<std::array<char, N>> hex_to_vect_ne(const std::string& str) {
+  if (str.size() != N * 2) {
+    return std::nullopt;
+  }
+
+  char bytes[N];
+  try {
+    for (size_t i = 0; i < N; i++) {
+      bytes[i] = std::stoi(str.substr(i * 2, 2), nullptr, 16);
+    }
+  } catch (const std::exception& e) {
+    return std::nullopt;
+  }
+
+  std::array<char, N> rv;
+  std::copy(std::begin(bytes), std::end(bytes), rv.begin());
+
+  return rv;
+}
+
 const SupportedFeature supported_features[] = {
     {
         "QStartNoAckMode",
@@ -185,6 +206,7 @@ enum RegSize {
   Short,
   Word,
   ByteWord,
+  DoubleWord,
   Double,
   Vector,
   Predicate,
@@ -203,6 +225,8 @@ unsigned int getBitsize(RegSize size) {
     case Word:
       return 32;
     case ByteWord:
+      return 32;
+    case DoubleWord:
       return 32;
     case Double:
       return 64;
@@ -436,8 +460,8 @@ void deriveSVE(tinyxml2::XMLPrinter& printer, RegList& regs) {
     addReg(printer, regs, 1, i, "z" + std::to_string(i), Vector, "svev");
   }
 
-  addReg(printer, regs, 4, 2, "fpsr", Word, "fpsr_flags");
-  addReg(printer, regs, 4, 1, "fpcr", Word, "fpcr_flags");
+  addReg(printer, regs, 4, 2, "fpsr", DoubleWord, "fpsr_flags");
+  addReg(printer, regs, 4, 1, "fpcr", DoubleWord, "fpcr_flags");
 
   for (auto i = 0; i < 16; i++) {
     addReg(printer, regs, 2, i, "p" + std::to_string(i), Predicate, "svep");
@@ -543,6 +567,11 @@ std::string readRegister(const RegList::value_type& which,
       break;
     }
 
+    case DoubleWord: {
+      rv += int_to_hex_ne(registers.get(reg).get<uint32_t>());
+      break;
+    }
+
     case Double: {
       rv += int_to_hex_ne(registers.get(reg).get<uint64_t>());
       break;
@@ -599,6 +628,96 @@ std::string readRegister(const RegList::value_type& which,
   return rv;
 }
 
+std::optional<simeng::RegisterValue> parseRegister(
+    const RegList::value_type& which, const std::string& str) {
+  const auto& [reg, size] = which;
+
+  switch (size) {
+    case Byte: {
+      const auto value = hex_to_int_ne<uint8_t>(str);
+      if (value) {
+        return simeng::RegisterValue(*value);
+      } else {
+        return std::nullopt;
+      }
+    }
+
+    case Short: {
+      const auto value = hex_to_int_ne<uint16_t>(str);
+      if (value) {
+        return simeng::RegisterValue(*value);
+      } else {
+        return std::nullopt;
+      }
+    }
+
+    case Word: {
+      const auto value = hex_to_int_ne<uint32_t>(str);
+      if (value) {
+        return simeng::RegisterValue(*value);
+      } else {
+        return std::nullopt;
+      }
+    }
+
+    case ByteWord: {
+      const auto value = hex_to_int_ne<uint32_t>(str);
+      if (value) {
+        return simeng::RegisterValue(static_cast<uint8_t>(*value));
+      } else {
+        return std::nullopt;
+      }
+    }
+
+    case DoubleWord: {
+      const auto value = hex_to_int_ne<uint32_t>(str);
+      if (value) {
+        return simeng::RegisterValue(static_cast<uint64_t>(*value));
+      } else {
+        return std::nullopt;
+      }
+    }
+
+    case Double:
+    case PC:
+    case VG:
+    case SVG: {
+      const auto value = hex_to_int_ne<uint64_t>(str);
+      if (value) {
+        return simeng::RegisterValue(*value);
+      } else {
+        return std::nullopt;
+      }
+    }
+
+    case Vector: {
+      const auto value = hex_to_vect_ne<256>(str);
+      if (value) {
+        const auto arr = *value;
+        return simeng::RegisterValue(arr.data(), arr.size());
+      } else {
+        return std::nullopt;
+      }
+    }
+
+    case Predicate: {
+      const auto value = hex_to_vect_ne<32>(str);
+      if (value) {
+        const auto arr = *value;
+        return simeng::RegisterValue(arr.data(), arr.size());
+      } else {
+        return std::nullopt;
+      }
+    }
+
+    case ZA: {
+      return std::nullopt;
+    }
+  }
+
+  return std::nullopt;
+}
+
 namespace simeng {
 GDBStub::GDBStub(simeng::CoreInstance& coreInstance, bool verbose,
                  uint16_t port)
@@ -617,186 +736,207 @@ uint64_t GDBStub::run() {
   auto running = true;
 
   while (running) {
-    const ssize_t bytesRead = read(connection, buffer, sizeof(buffer));
+    auto packet = ParseResult{ExpectStart, "", 0, 0, 2};
 
-    if (bytesRead == 0) {
-      std::cout
-          << "[SimEng:GDBStub] Client disconnected (read EOF from connection)."
-          << std::endl;
-      break;
-    } else if (bytesRead < 0) {
-      std::cerr << RED
-                << "[SimEng:GDBStub] An error occurred while reading from the "
-                   "connection. errno: "
-                << errno << " (" << strerror(errno) << ")" << RESET
-                << std::endl;
-      exit(EXIT_FAILURE);
-    }
+    while (!packet.done()) {
+      const ssize_t bytesRead = read(connection, buffer, sizeof(buffer));
 
-    // safety: we've already checked whether bytesRead is less than 0, so we
-    // know it's positive and less than SIZE_T_MAX
-    auto bufferString = std::string{buffer, static_cast<size_t>(bytesRead)};
-
-    if (verbose_) {
-      std::cout << CYAN << "[SimEng:GDBStub] <- Raw packet: '" << bufferString
-                << "' (" << bufferString.size() << ")" << RESET << std::endl;
-    }
-
-    if (bufferString[0] == '-') {
-      sendResponse(lastResponse);
-      continue;
-    }
-
-    // etx
-    if (bufferString[0] == '\3') {
-      sendResponse(encodePacket(formatSignal(SIGTRAP, {})));
-      continue;
-    }
-
-    if (ack_mode != Disabled) {
-      // '+' is an acknowledgement of successful receipt of message
-      // '-' is a request for retransmission
-
-      while (!bufferString.empty()) {
-        if (bufferString[0] == '+') {
-          if (verbose_) {
-            std::cout << CYAN
-                      << "[SimEng:GDBStub] <- Received message acknowledgement"
-                      << RESET << std::endl;
-          }
-          bufferString = bufferString.substr(1);
-          continue;
-        }
+      if (bytesRead == 0) {
+        std::cout << "[SimEng:GDBStub] Client disconnected (read EOF from "
+                     "connection)."
+                  << std::endl;
         break;
+      } else if (bytesRead < 0) {
+        std::cerr
+            << RED
+            << "[SimEng:GDBStub] An error occurred while reading from the "
+               "connection. errno: "
+            << errno << " (" << strerror(errno) << ")" << RESET << std::endl;
+        exit(EXIT_FAILURE);
       }
 
-      if (ack_mode == Transition) {
-        sendResponse("+");
-        ack_mode = Disabled;
-      }
-    }
-
-    // if the packet was just an acknowledgement and nothing else, bufferString
-    // is now empty
-    if (bufferString.empty()) {
-      continue;
-    }
-
-    const auto packet = decodePacket(bufferString);
-
-    if (packet) {
-      const auto command = *packet;
+      // safety: we've already checked whether bytesRead is less than 0, so we
+      // know it's positive and less than SIZE_T_MAX
+      auto bufferString = std::string{buffer, static_cast<size_t>(bytesRead)};
 
       if (verbose_) {
-        std::cout << GREEN << "[SimEng:GDBStub] <- " << command << RESET
-                  << std::endl;
+        std::cout << CYAN << "[SimEng:GDBStub] <- Raw packet: '" << bufferString
+                  << "' (" << bufferString.size() << ")" << RESET << std::endl;
       }
 
-      if (command.size() < 1) {
-        sendResponse("-");
+      if (bufferString[0] == '-') {
+        sendResponse(lastResponse);
         continue;
       }
 
-      std::string rawResponse;
-
-      // safety: we've already checked whether the size was less than 1, so
-      // there must be at least one character in the string
-      const auto commandType = command[0];
-      const auto commandParams = command.substr(1);
-
-      if (verbose_) {
-        std::cout << "[SimEng:GDBStub] <- Command " << commandType
-                  << ", params " << commandParams << std::endl;
+      // etx
+      if (bufferString[0] == '\3') {
+        sendResponse(encodePacket(formatSignal(SIGTRAP, {})));
+        continue;
       }
 
-      switch (command[0]) {
-        case '?': {
-          rawResponse = handleHaltReason();
-          break;
-        }
+      if (ack_mode != Disabled) {
+        // '+' is an acknowledgement of successful receipt of message
+        // '-' is a request for retransmission
 
-        case 'c': {
-          rawResponse = handleContinue(commandParams);
-          break;
-        }
-
-        case 'g': {
-          rawResponse = handleReadRegisters();
-          break;
-        }
-
-        case 'G': {
-          rawResponse = handleWriteRegisters(commandParams);
-          break;
-        }
-
-        case 'k': {
-          if (verbose_) {
-            std::cout << CYAN
-                      << "[SimEng:GDBStub]    Received kill request from "
-                         "client, exiting"
-                      << RESET << std::endl;
+        while (!bufferString.empty()) {
+          if (bufferString[0] == '+') {
+            if (verbose_) {
+              std::cout
+                  << CYAN
+                  << "[SimEng:GDBStub] <- Received message acknowledgement"
+                  << RESET << std::endl;
+            }
+            bufferString = bufferString.substr(1);
+            continue;
           }
-          running = false;
-          continue;
-        }
-
-        case 'm': {
-          rawResponse = handleReadMemory(commandParams);
           break;
         }
 
-        case 'M': {
-          rawResponse = handleWriteMemory(commandParams);
-          break;
-        }
+        sendResponse("+");
 
-        case 'p': {
-          rawResponse = handleReadRegister(commandParams);
-          break;
-        }
-
-        case 'P': {
-          rawResponse = handleWriteRegister(commandParams);
-          break;
-        }
-
-        case 'q': {
-          rawResponse = handleQuery(commandParams);
-          break;
-        }
-
-        case 'Q': {
-          rawResponse = handleSet(commandParams);
-          break;
-        }
-
-        case 's': {
-          rawResponse = handleStep(commandParams);
-          break;
-        }
-
-        case 'z': {
-          rawResponse = handleRemoveBreakpoint(commandParams);
-          break;
-        }
-
-        case 'Z': {
-          rawResponse = handleAddBreakpoint(commandParams);
-          break;
-        }
-
-        default: {
-          // unsupported
-          rawResponse = "";
-          break;
+        if (ack_mode == Transition) {
+          ack_mode = Disabled;
         }
       }
 
-      sendResponse(encodePacket(rawResponse));
-    } else {
-      sendResponse("-");
+      // if the packet was just an acknowledgement and nothing else,
+      // bufferString is now empty
+      if (bufferString.empty()) {
+        continue;
+      }
+
+      const auto next_packet = decodePacket(bufferString, packet);
+      if (next_packet) {
+        packet = *next_packet;
+      } else {
+        sendResponse("-");
+      }
     }
+
+    if (!packet.valid()) {
+      if (verbose_) {
+        std::cerr
+            << RED << std::hex
+            << "[SimEng:GDBStub] Packet checksum does not match expected; "
+               "received "
+            << int_to_hex(packet.receivedChecksum) << ", calculated "
+            << int_to_hex(packet.calculatedChecksum) << std::dec << RESET
+            << std::endl;
+      }
+      sendResponse("-");
+      continue;
+    }
+
+    const auto command = packet.packet;
+
+    if (verbose_) {
+      std::cout << GREEN << "[SimEng:GDBStub] <- " << command << RESET
+                << std::endl;
+    }
+
+    if (command.size() < 1) {
+      sendResponse("-");
+      continue;
+    }
+
+    std::string rawResponse;
+
+    // safety: we've already checked whether the size was less than 1, so
+    // there must be at least one character in the string
+    const auto commandType = command[0];
+    const auto commandParams = command.substr(1);
+
+    if (verbose_) {
+      std::cout << "[SimEng:GDBStub] <- Command " << commandType << ", params "
+                << commandParams << std::endl;
+    }
+
+    switch (command[0]) {
+      case '?': {
+        rawResponse = handleHaltReason();
+        break;
+      }
+
+      case 'c': {
+        rawResponse = handleContinue(commandParams);
+        break;
+      }
+
+      case 'g': {
+        rawResponse = handleReadRegisters();
+        break;
+      }
+
+      case 'G': {
+        rawResponse = handleWriteRegisters(commandParams);
+        break;
+      }
+
+      case 'k': {
+        if (verbose_) {
+          std::cout << CYAN
+                    << "[SimEng:GDBStub]    Received kill request from "
+                       "client, exiting"
+                    << RESET << std::endl;
+        }
+        running = false;
+        continue;
+      }
+
+      case 'm': {
+        rawResponse = handleReadMemory(commandParams);
+        break;
+      }
+
+      case 'M': {
+        rawResponse = handleWriteMemory(commandParams);
+        break;
+      }
+
+      case 'p': {
+        rawResponse = handleReadRegister(commandParams);
+        break;
+      }
+
+      case 'P': {
+        rawResponse = handleWriteRegister(commandParams);
+        break;
+      }
+
+      case 'q': {
+        rawResponse = handleQuery(commandParams);
+        break;
+      }
+
+      case 'Q': {
+        rawResponse = handleSet(commandParams);
+        break;
+      }
+
+      case 's': {
+        rawResponse = handleStep(commandParams);
+        break;
+      }
+
+      case 'z': {
+        rawResponse = handleRemoveBreakpoint(commandParams);
+        break;
+      }
+
+      case 'Z': {
+        rawResponse = handleAddBreakpoint(commandParams);
+        break;
+      }
+
+      default: {
+        // unsupported
+        rawResponse = "";
+        break;
+      }
+    }
+
+    sendResponse(encodePacket(rawResponse));
   }
 
   return iterations;
@@ -894,6 +1034,11 @@ std::string GDBStub::handleReadRegisters() {
 
 std::string GDBStub::handleWriteRegister(
     const std::string& raw_register_value) {
+  auto core = coreInstance_.getCore();
+  auto& registers = core->getArchitecturalRegisterFileSet();
+  const auto& isa = core->getISA();
+  const auto [vl, svl] = isa.getVectorSize();
+
   const auto register_value = splitBy(raw_register_value, '=');
 
   if (register_value.size() != 2) {
@@ -908,7 +1053,7 @@ std::string GDBStub::handleWriteRegister(
 
   int reg_num;
   try {
-    reg_num = std::stoi(register_value[0]);
+    reg_num = std::stoi(register_value[0], nullptr, 16);
   } catch (const std::exception& e) {
     if (verbose_) {
       std::cerr << RED << "[SimEng:GDBStub] Invalid register number: "
@@ -925,7 +1070,75 @@ std::string GDBStub::handleWriteRegister(
     return formatError("single register number out of range");
   }
 
-  // TODO: actually do the register write
+  const auto reg_size = target_spec.regs[reg_num];
+
+  const auto [reg, size] = reg_size;
+
+  switch (size) {
+    case PC: {
+      const auto value = hex_to_int_ne<uint64_t>(register_value[1]);
+      if (!value) {
+        if (verbose_) {
+          std::cerr << RED << "[SimEng:GDBStub] Invalid register data" << RESET
+                    << std::endl;
+        }
+        return formatError("single register data invalid (pc)");
+      }
+      core->setProgramCounter(*value);
+      break;
+    }
+
+    case VG: {
+      // cannot write VG
+      break;
+    }
+
+    case SVG: {
+      // cannot write SVG
+      break;
+    }
+
+    case ZA: {
+      std::vector<simeng::Register> regs;
+      std::vector<simeng::RegisterValue> vals;
+
+      const auto value = hex_to_vect_ne<256 * 256>(register_value[1]);
+      if (!value) {
+        if (verbose_) {
+          std::cerr << RED << "[SimEng:GDBStub] Invalid register data" << RESET
+                    << std::endl;
+        }
+        return formatError("single register data invalid (za)");
+      }
+
+      for (uint16_t i = 0; i < 256; i++) {
+        if (i < (svl / 8)) {
+          regs.push_back(simeng::Register{5, i});
+
+          vals.push_back(simeng::RegisterValue(value->data() + (i * 256), 256));
+        }
+      }
+
+      core->applyStateChange(simeng::arch::ProcessStateChange{
+          simeng::arch::ChangeType::REPLACEMENT, regs, vals, {}, {}});
+      break;
+    }
+
+    default: {
+      const auto value = parseRegister(reg_size, register_value[1]);
+      if (!value) {
+        if (verbose_) {
+          std::cerr << RED << "[SimEng:GDBStub] Invalid register data" << RESET
+                    << std::endl;
+        }
+        return formatError("single register data invalid");
+      }
+
+      core->applyStateChange(simeng::arch::ProcessStateChange{
+          simeng::arch::ChangeType::REPLACEMENT, {reg}, {*value}, {}, {}});
+      break;
+    }
+  }
 
   return "OK";
 }
@@ -935,7 +1148,7 @@ std::string GDBStub::handleWriteRegisters(const std::string& register_values) {
   auto& registers = core->getArchitecturalRegisterFileSet();
   const auto& isa = core->getISA();
 
-  const auto& reg_layout = simeng::config::SimInfo::getPhysRegStruct();
+  const auto& reg_layout = simeng::config::SimInfo::getArchRegStruct();
 
   const auto error = [&] {
     if (verbose_) {
@@ -945,7 +1158,78 @@ std::string GDBStub::handleWriteRegisters(const std::string& register_values) {
     return formatError("invalid register set write");
   };
 
-  // TODO: actually do the register write
+  const auto [vl, svl] = isa.getVectorSize();
+
+  checkSpec(coreInstance_);
+
+  size_t string_offset = 0;
+  std::vector<simeng::Register> regs;
+  std::vector<simeng::RegisterValue> vals;
+
+  for (const auto& reg_size : target_spec.regs) {
+    const auto [reg, size] = reg_size;
+
+    switch (size) {
+      case PC: {
+        const auto value = hex_to_int_ne<uint64_t>(
+            register_values.substr(string_offset, 2 * sizeof(uint64_t)));
+        string_offset += 2 * sizeof(uint64_t);
+        if (!value) {
+          return error();
+        }
+        core->setProgramCounter(*value);
+        break;
+      }
+
+      case VG: {
+        // cannot write VG
+        string_offset += 2 * sizeof(uint64_t);
+        break;
+      }
+
+      case SVG: {
+        // cannot write SVG
+        string_offset += 2 * sizeof(uint64_t);
+        break;
+      }
+
+      case ZA: {
+        const auto value = hex_to_vect_ne<256 * 256>(
+            register_values.substr(string_offset, 2 * 256 * 256));
+        string_offset += 2 * 256 * 256;
+        if (!value) {
+          return error();
+        }
+
+        for (uint16_t i = 0; i < 256; i++) {
+          if (i < (svl / 8)) {
+            regs.push_back(simeng::Register{5, i});
+
+            vals.push_back(
+                simeng::RegisterValue(value->data() + (i * 256), 256));
+          }
+        }
+        break;
+      }
+
+      default: {
+        const auto value = parseRegister(
+            reg_size,
+            register_values.substr(string_offset, (getBitsize(size) / 8) * 2));
+        string_offset += (getBitsize(size) / 8) * 2;
+        if (!value) {
+          return error();
+        }
+
+        regs.push_back(reg);
+        vals.push_back(*value);
+        break;
+      }
+    }
+  }
+
+  core->applyStateChange(simeng::arch::ProcessStateChange{
+      simeng::arch::ChangeType::REPLACEMENT, regs, vals, {}, {}});
 
   return "OK";
 }
@@ -1008,6 +1292,8 @@ std::string GDBStub::handleReadMemory(const std::string& raw_params) {
   return rv;
 }
 std::string GDBStub::handleWriteMemory(const std::string& raw_params) {
+  auto core = coreInstance_.getCore();
+
   const auto data = splitBy(raw_params, ':');
 
   if (data.size() != 2) {
@@ -1063,11 +1349,8 @@ std::string GDBStub::handleWriteMemory(const std::string& raw_params) {
     return formatError(4);
   }
 
-  char* const memoryPointer =
-      coreInstance_.getDataMemory()->getMemoryPointer() + startAddress;
-
   // TODO: stack overflow on large writes?
-  uint8_t buffer[numberOfBytes];
+  char buffer[numberOfBytes];
 
   try {
     for (size_t i = 0; i < numberOfBytes; i++) {
@@ -1087,7 +1370,19 @@ std::string GDBStub::handleWriteMemory(const std::string& raw_params) {
               << std::endl;
   }
 
-  memcpy(memoryPointer, buffer, numberOfBytes);
+  std::vector<memory::MemoryAccessTarget> targets;
+  std::vector<RegisterValue> values;
+
+  for (auto i = 0; i < numberOfBytes; i += UINT16_MAX) {
+    const auto remaining = numberOfBytes - i;
+    const auto len = static_cast<uint16_t>(
+        (remaining <= UINT16_MAX) ? remaining : UINT16_MAX);
+    targets.push_back(memory::MemoryAccessTarget{startAddress + i, len});
+    values.push_back(RegisterValue(buffer + i, len));
+  }
+
+  core->applyStateChange(arch::ProcessStateChange{
+      arch::ChangeType::REPLACEMENT, {}, {}, targets, values});
 
   return "OK";
 }
@@ -1434,32 +1729,14 @@ std::string GDBStub::queryFeatures(const std::vector<std::string>& params) {
   }
 }
 
-std::optional<std::string> GDBStub::decodePacket(
-    const std::string& encodedPacket) {
-  enum ParseState {
-    ExpectStart,
-    Packet,
-    Escape,
-    Checksum,
-    Done,
-    ExtraData,
-  };
-
-  std::string rv;
-
-  ParseState state = ExpectStart;
-
-  uint8_t calculatedChecksum;
-  uint8_t receivedChecksum;
-
-  auto checksumRemaining = 2;
-
+std::optional<ParseResult> GDBStub::decodePacket(
+    const std::string& encodedPacket, ParseResult result) {
   for (const auto& c : encodedPacket) {
-    switch (state) {
+    switch (result.state) {
       case ExpectStart: {
         switch (c) {
           case '$': {
-            state = Packet;
+            result.state = Packet;
             break;
           }
 
@@ -1488,12 +1765,12 @@ std::optional<std::string> GDBStub::decodePacket(
       case Packet: {
         switch (c) {
           case '}': {
-            state = Escape;
+            result.state = Escape;
             break;
           }
 
           case '#': {
-            state = Checksum;
+            result.state = Checksum;
 
             // do not add the hash to the checksum
             continue;
@@ -1511,36 +1788,36 @@ std::optional<std::string> GDBStub::decodePacket(
           }
 
           default: {
-            rv += c;
+            result.packet += c;
             break;
           }
         }
 
-        calculatedChecksum += c;
+        result.calculatedChecksum += c;
 
         break;
       }
       case Escape: {
-        rv += c ^ 0x20;
-        calculatedChecksum += c;
+        result.packet += c ^ 0x20;
+        result.calculatedChecksum += c;
 
-        state = Packet;
+        result.state = Packet;
 
         break;
       }
       case Checksum: {
-        receivedChecksum <<= 4;
+        result.receivedChecksum <<= 4;
         switch (c) {
           case '0' ... '9': {
-            receivedChecksum |= c - '0';
+            result.receivedChecksum |= c - '0';
             break;
           }
           case 'A' ... 'F': {
-            receivedChecksum |= c - 'A' + 10;
+            result.receivedChecksum |= c - 'A' + 10;
             break;
           }
           case 'a' ... 'f': {
-            receivedChecksum |= c - 'a' + 10;
+            result.receivedChecksum |= c - 'a' + 10;
             break;
           }
           default: {
@@ -1554,9 +1831,9 @@ std::optional<std::string> GDBStub::decodePacket(
           }
         }
 
-        checksumRemaining--;
-        if (checksumRemaining <= 0) {
-          state = Done;
+        result.checksumRemaining--;
+        if (result.checksumRemaining <= 0) {
+          result.state = Done;
         }
 
         break;
@@ -1568,7 +1845,7 @@ std::optional<std::string> GDBStub::decodePacket(
               << "[SimEng:GDBStub] More data follows after packet, ignoring"
               << RESET << std::endl;
         }
-        state = ExtraData;
+        result.state = ExtraData;
 
         break;
       }
@@ -1580,30 +1857,7 @@ std::optional<std::string> GDBStub::decodePacket(
     }
   }
 
-  if ((state != Done) && (state != ExtraData)) {
-    if (verbose_) {
-      std::cerr << RED << "[SimEng:GDBStub] Invalid packet '" << encodedPacket
-                << "' (unexpected end state)" << RESET << std::endl;
-    }
-
-    // return error
-    return std::nullopt;
-  }
-
-  if (calculatedChecksum != receivedChecksum) {
-    if (verbose_) {
-      std::cerr << RED << std::hex
-                << "[SimEng:GDBStub] Packet checksum does not match expected; "
-                   "received "
-                << int_to_hex(receivedChecksum) << ", calculated " << int_to_hex(calculatedChecksum)
-                << std::dec << RESET << std::endl;
-    }
-
-    // return error
-    return std::nullopt;
-  }
-
-  return rv;
+  return result;
 }
 
 std::string GDBStub::encodePacket(const std::string& response) {
