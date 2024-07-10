@@ -138,10 +138,6 @@ const ArchitecturalRegisterFileSet& Core::getArchitecturalRegisterFileSet()
   return architecturalRegisterFileSet_;
 }
 
-ArchitecturalRegisterFileSet& Core::getArchitecturalRegisterFileSet() {
-  return architecturalRegisterFileSet_;
-}
-
 uint64_t Core::getInstructionsRetiredCount() const {
   return writebackUnit_.getInstructionsWrittenCount();
 }

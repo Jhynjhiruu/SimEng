@@ -21,6 +21,10 @@ class RegisterAliasTable {
    * architectural register. */
   Register getMapping(Register architectural) const;
 
+  /** Retrieve the committed physical register assigned to the provided
+   * architectural register. */
+  Register getCommittedMapping(Register architectural) const;
+
   /** Determine whether it's possible to allocate `quantity` physical registers
    * of type `type` this cycle. */
   bool canAllocate(uint8_t type, unsigned int quantity) const;
@@ -47,6 +51,9 @@ class RegisterAliasTable {
   /** The register mapping tables. Holds a map of architectural -> physical
    * register mappings for each register type. */
   std::vector<std::vector<uint16_t>> mappingTable_;
+
+  /** TODO: comment here */
+  std::vector<std::vector<uint16_t>> commitTable_;
 
   /** The register history tables. Each table holds an entry for each physical
    * register, recording the physical register formerly assigned to its

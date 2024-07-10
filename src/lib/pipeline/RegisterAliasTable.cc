@@ -9,6 +9,7 @@ RegisterAliasTable::RegisterAliasTable(
     std::vector<RegisterFileStructure> architecturalStructure,
     std::vector<uint16_t> physicalRegisterCounts)
     : mappingTable_(architecturalStructure.size()),
+      commitTable_(architecturalStructure.size()),
       historyTable_(architecturalStructure.size()),
       destinationTable_(architecturalStructure.size()),
       freeQueues_(architecturalStructure.size()) {
@@ -24,10 +25,12 @@ RegisterAliasTable::RegisterAliasTable(
 
     // Set up the initial mapping table state for this register type
     mappingTable_[type].resize(archCount);
+    commitTable_[type].resize(archCount);
 
     for (size_t tag = 0; tag < archCount; tag++) {
       // Pre-assign a physical register to each architectural register
       mappingTable_[type][tag] = tag;
+      commitTable_[type][tag] = tag;
     }
 
     // Add remaining physical registers to free queue
@@ -50,6 +53,18 @@ Register RegisterAliasTable::getMapping(Register architectural) const {
          "Invalid register type. Cannot find RAT mapping.");
 
   auto tag = mappingTable_[architectural.type][architectural.tag];
+  return {architectural.type, tag, true};
+}
+
+Register RegisterAliasTable::getCommittedMapping(Register architectural) const {
+  // Asserts to ensure mapping isn't attempted for an out-of-bound index (i.e.
+  // mapping of WZR / XZR)
+  assert(architectural.type < mappingTable_.size() &&
+         "Invalid register type. Cannot find RAT mapping.");
+  assert(architectural.type >= 0 &&
+         "Invalid register type. Cannot find RAT mapping.");
+
+  const auto tag = commitTable_[architectural.type][architectural.tag];
   return {architectural.type, tag, true};
 }
 
@@ -92,6 +107,9 @@ void RegisterAliasTable::commit(Register physical) {
   // free it
   auto oldTag = historyTable_[physical.type][physical.tag];
   freeQueues_[physical.type].push(oldTag);
+
+  const auto archTag = destinationTable_[physical.type][physical.tag];
+  commitTable_[physical.type][archTag] = physical.tag;
 }
 
 void RegisterAliasTable::rewind(Register physical) {

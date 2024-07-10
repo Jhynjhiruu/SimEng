@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <map>
+#include <optional>
 #include <string>
 
 #include "simeng/ArchitecturalRegisterFileSet.hh"
@@ -41,9 +42,6 @@ class Core {
   virtual const ArchitecturalRegisterFileSet& getArchitecturalRegisterFileSet()
       const = 0;
 
-  /** Mutably retrieve the architectural register file set. */
-  virtual ArchitecturalRegisterFileSet& getArchitecturalRegisterFileSet() = 0;
-
   /** Retrieve the number of instructions retired. */
   virtual uint64_t getInstructionsRetiredCount() const = 0;
 
@@ -64,6 +62,10 @@ class Core {
 
   /** Retrieve the ISA instance. */
   const arch::Architecture& getISA() const { return isa_; }
+
+  /** Prepare the necessary breakpoint state for the following run. */
+  virtual void prepareBreakpoints(const std::optional<uint64_t>* step_from,
+                                  const std::vector<uint64_t>* breakpoints) {}
 
   /** Apply changes to the process state. */
   void applyStateChange(const arch::ProcessStateChange& change) const {

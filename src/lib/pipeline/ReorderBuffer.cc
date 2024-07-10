@@ -85,6 +85,24 @@ unsigned int ReorderBuffer::commit(uint64_t maxCommitSize) {
       break;
     }
 
+    // TODO: is it possible for putting this ↓ before uop->canCommit() to cause
+    // problems?
+
+    const auto pc = uop->getInstructionAddress();
+
+    if ((step_from_ != nullptr) && (*step_from_)) {
+      if (pc != **step_from_) {
+        pc_ = pc;
+        break;
+      }
+    } else if (breakpoints_ != nullptr) {
+      if (std::any_of(breakpoints_->cbegin(), breakpoints_->cend(),
+                      [&](const auto bp) { return pc == bp; })) {
+        pc_ = pc;
+        break;
+      }
+    }
+
     if (uop->isLastMicroOp()) instructionsCommitted_++;
 
     if (uop->exceptionEncountered()) {
@@ -108,9 +126,8 @@ unsigned int ReorderBuffer::commit(uint64_t maxCommitSize) {
         loadViolations_++;
         // Memory order violation found; aborting commits and flushing
         auto load = lsq_.getViolatingLoad();
-        shouldFlush_ = true;
-        flushAfter_ = load->getInstructionId() - 1;
-        pc_ = load->getInstructionAddress();
+        clobberAfter(load->getInstructionId() - 1,
+                     load->getInstructionAddress());
 
         buffer_.pop_front();
         return n + 1;
@@ -205,6 +222,21 @@ uint64_t ReorderBuffer::getInstructionsCommittedCount() const {
 uint64_t ReorderBuffer::getViolatingLoadsCount() const {
   return loadViolations_;
 }
+
+void ReorderBuffer::clobberAfter(uint64_t id, uint64_t pc) {
+  shouldFlush_ = true;
+  flushAfter_ = id;
+  pc_ = pc;
+}
+
+void ReorderBuffer::prepareBreakpoints(
+    const std::optional<uint64_t>* step_from,
+    const std::vector<uint64_t>* breakpoints) {
+  step_from_ = step_from;
+  breakpoints_ = breakpoints;
+}
+
+const uint64_t ReorderBuffer::getPC() const { return pc_; }
 
 }  // namespace pipeline
 }  // namespace simeng

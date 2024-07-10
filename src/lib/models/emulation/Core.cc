@@ -165,10 +165,6 @@ const ArchitecturalRegisterFileSet& Core::getArchitecturalRegisterFileSet()
   return architecturalRegisterFileSet_;
 }
 
-ArchitecturalRegisterFileSet& Core::getArchitecturalRegisterFileSet() {
-  return architecturalRegisterFileSet_;
-}
-
 uint64_t Core::getInstructionsRetiredCount() const {
   return instructionsExecuted_;
 }
@@ -260,7 +256,11 @@ void Core::processExceptionHandler() {
 
 const uint64_t Core::getProgramCounter() const { return pc_; }
 
-void Core::setProgramCounter(uint64_t pc) { pc_ = pc; }
+void Core::setProgramCounter(uint64_t pc) {
+  pc_ = pc;
+  // may need to be removed when rebased on dev
+  instructionMemory_.requestRead({pc_, FETCH_SIZE});
+}
 
 }  // namespace emulation
 }  // namespace models

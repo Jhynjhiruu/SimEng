@@ -199,10 +199,6 @@ const ArchitecturalRegisterFileSet& Core::getArchitecturalRegisterFileSet()
   return mappedRegisterFileSet_;
 }
 
-ArchitecturalRegisterFileSet& Core::getArchitecturalRegisterFileSet() {
-  return mappedRegisterFileSet_;
-}
-
 uint64_t Core::getInstructionsRetiredCount() const {
   return reorderBuffer_.getInstructionsCommittedCount();
 }
@@ -382,9 +378,19 @@ void Core::flushIfNeeded() {
   }
 }
 
-const uint64_t Core::getProgramCounter() const { return fetchUnit_.getPC(); }
+const uint64_t Core::getProgramCounter() const {
+  return reorderBuffer_.getPC();
+}
 
-void Core::setProgramCounter(uint64_t pc) { fetchUnit_.setPC(pc); }
+void Core::setProgramCounter(uint64_t pc) {
+  fetchUnit_.setPC(pc);
+  reorderBuffer_.clobberAfter(1, pc);
+}
+
+void Core::prepareBreakpoints(const std::optional<uint64_t>* step_from,
+                              const std::vector<uint64_t>* breakpoints) {
+  reorderBuffer_.prepareBreakpoints(step_from, breakpoints);
+}
 
 }  // namespace outoforder
 }  // namespace models

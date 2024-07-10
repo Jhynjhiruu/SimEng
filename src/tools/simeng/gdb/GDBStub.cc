@@ -529,7 +529,7 @@ void checkSpec(const simeng::CoreInstance& coreInstance) {
     const auto core = coreInstance.getCore();
     const auto& isa = core->getISA();
 
-    const auto [_, svl] = isa.getVectorSize();
+    const auto [_vl, svl] = isa.getVectorSize();
 
     target_spec = deriveSpec();
 
@@ -943,11 +943,31 @@ uint64_t GDBStub::run() {
 }
 
 std::string GDBStub::runUntilStop(const std::optional<uint64_t>& step_from) {
-  const auto core = coreInstance_.getCore();
+  auto core = coreInstance_.getCore();
   const auto dataMemory = coreInstance_.getDataMemory();
+
+  std::vector<uint64_t> addresses;
+  for (const auto [_type, addr, _kind] : breakpoints) {
+    addresses.push_back(addr);
+  }
+
+  if (step_from) {
+    std::cout << "step from: " << int_to_hex(*step_from) << std::endl;
+  } else {
+    std::cout << "breakpoints:";
+    for (const auto bp : addresses) {
+      std::cout << "\n\t" << int_to_hex(bp);
+    }
+    std::cout << std::endl;
+  }
+
+  // TODO: currently, must manually ensure these are reset to nullptr after exit
+  core->prepareBreakpoints(&step_from, &addresses);
 
   while (!core->hasHalted() || dataMemory->hasPendingRequests()) {
     iterations++;
+
+    // TODO: exception to clear the pipeline on breakpoint in OoO?
 
     core->tick();
     dataMemory->tick();
@@ -957,18 +977,22 @@ std::string GDBStub::runUntilStop(const std::optional<uint64_t>& step_from) {
     // only check breakpoints if we're not single-stepping
     if (step_from) {
       if (pc != *step_from) {
+        core->prepareBreakpoints(nullptr, nullptr);
         return formatSignal(SIGTRAP, {std::make_tuple("hwbreak", "")});
       }
     } else {
       for (const auto [type, addr, kind] : breakpoints) {
         if (type == HardwareBP) {
           if (addr == pc) {
+            core->prepareBreakpoints(nullptr, nullptr);
             return formatSignal(SIGTRAP, {std::make_tuple("hwbreak", "")});
           }
         }
       }
     }
   }
+
+  core->prepareBreakpoints(nullptr, nullptr);
 
   // TODO: get real exit status
   return formatExit(0);

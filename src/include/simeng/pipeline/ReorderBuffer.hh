@@ -2,6 +2,7 @@
 
 #include <deque>
 #include <functional>
+#include <optional>
 
 #include "simeng/Instruction.hh"
 #include "simeng/pipeline/LoadStoreQueue.hh"
@@ -85,6 +86,16 @@ class ReorderBuffer {
   /** Get the number of speculated loads which violated load-store ordering. */
   uint64_t getViolatingLoadsCount() const;
 
+  /** Clobber all instructions after a certain sequence ID. */
+  void clobberAfter(uint64_t id, uint64_t pc);
+
+  /** Prepare the necessary breakpoint state for the following run. */
+  void prepareBreakpoints(const std::optional<uint64_t>* step_from,
+                          const std::vector<uint64_t>* breakpoints);
+
+  /** Retrieve the current program counter value. */
+  const uint64_t getPC() const;
+
  private:
   /** A reference to the register alias table. */
   RegisterAliasTable& rat_;
@@ -144,6 +155,12 @@ class ReorderBuffer {
 
   /** The number of speculative loads which violated load-store ordering. */
   uint64_t loadViolations_ = 0;
+
+  /** If present, break when the program counter doesn't match this value. */
+  const std::optional<uint64_t>* step_from_ = nullptr;
+
+  /** If present, break when the program counter matches any of these values. */
+  const std::vector<uint64_t>* breakpoints_ = nullptr;
 };
 
 }  // namespace pipeline

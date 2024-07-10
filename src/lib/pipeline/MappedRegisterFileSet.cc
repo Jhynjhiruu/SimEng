@@ -8,11 +8,11 @@ MappedRegisterFileSet::MappedRegisterFileSet(
     : ArchitecturalRegisterFileSet(physicalRegisterFileSet), rat_(rat) {}
 
 const RegisterValue& MappedRegisterFileSet::get(Register reg) const {
-  return ArchitecturalRegisterFileSet::get(rat_.getMapping(reg));
+  return ArchitecturalRegisterFileSet::get(rat_.getCommittedMapping(reg));
 }
 
 void MappedRegisterFileSet::set(Register reg, const RegisterValue& value) {
-  return ArchitecturalRegisterFileSet::set(rat_.getMapping(reg), value);
+  return ArchitecturalRegisterFileSet::set(rat_.getCommittedMapping(reg), value);
 }
 
 }  // namespace pipeline
