@@ -4,6 +4,7 @@
 #include <functional>
 #include <optional>
 
+#include "simeng/Core.hh"
 #include "simeng/Instruction.hh"
 #include "simeng/pipeline/LoadStoreQueue.hh"
 #include "simeng/pipeline/RegisterAliasTable.hh"
@@ -90,8 +91,18 @@ class ReorderBuffer {
   void clobberAfter(uint64_t id, uint64_t pc);
 
   /** Prepare the necessary breakpoint state for the following run. */
-  void prepareBreakpoints(const std::optional<uint64_t>* step_from,
-                          const std::vector<uint64_t>* breakpoints);
+  void prepareBreakpoints(
+      const std::optional<uint64_t>* step_from, const std::vector<uint64_t>* bp,
+      const std::vector<simeng::memory::MemoryAccessTarget>* wp,
+      const std::vector<simeng::memory::MemoryAccessTarget>* rp,
+      const std::vector<simeng::memory::MemoryAccessTarget>* ap);
+
+  /** Retrieve the reason for a break, if any. */
+  const std::optional<simeng::BreakReason> getBreakReason() const;
+
+  /** Set the break reasons. */
+  void setBreakReasons(std::optional<simeng::BreakReason> reason,
+                      std::optional<simeng::BreakReason> next_reason);
 
   /** Retrieve the current program counter value. */
   const uint64_t getPC() const;
@@ -160,7 +171,22 @@ class ReorderBuffer {
   const std::optional<uint64_t>* step_from_ = nullptr;
 
   /** If present, break when the program counter matches any of these values. */
-  const std::vector<uint64_t>* breakpoints_ = nullptr;
+  const std::vector<uint64_t>* bp_ = nullptr;
+
+  /** If present, break when writing to any of these addresses. */
+  const std::vector<simeng::memory::MemoryAccessTarget>* wp_ = nullptr;
+
+  /** If present, break when reading from any of these addresses. */
+  const std::vector<simeng::memory::MemoryAccessTarget>* rp_ = nullptr;
+
+  /** If present, break when accessing any of these addresses. */
+  const std::vector<simeng::memory::MemoryAccessTarget>* ap_ = nullptr;
+
+  /** The last reason for which a break occurred. */
+  std::optional<simeng::BreakReason> br_ = std::nullopt;
+
+  /** The next reason to break. */
+  std::optional<simeng::BreakReason> brn_ = std::nullopt;
 };
 
 }  // namespace pipeline

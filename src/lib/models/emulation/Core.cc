@@ -44,12 +44,20 @@ void Core::tick() {
     return;
   }
 
-  ticks_++;
-  isa_.updateSystemTimerRegisters(&registerFileSet_, ticks_);
+  if (macroOp_.empty()) {
+    ticks_++;
+    isa_.updateSystemTimerRegisters(&registerFileSet_, ticks_);
+  } else {
+    macroOp_.clear();
+  }
 
   // Fetch & Decode
   assert(macroOp_.empty() &&
          "Cannot begin emulation tick with un-executed micro-ops.");
+
+  // Fetch memory for next cycle
+  instructionMemory_.requestRead({pc_, FETCH_SIZE});
+
   // We only fetch one instruction at a time, so only ever one result in
   // complete reads
   const auto& instructionBytes = instructionMemory_.getCompletedReads()[0].data;
@@ -59,6 +67,8 @@ void Core::tick() {
   // Clear the fetched data
   instructionMemory_.clearCompletedReads();
 
+  const auto prevPC = pc_;
+
   pc_ += bytesRead;
 
   // Loop over all micro-ops and execute one by one
@@ -66,7 +76,11 @@ void Core::tick() {
     auto& uop = macroOp_.front();
 
     if (uop->exceptionEncountered()) {
-      handleException(uop);
+      if (handleException(uop)) {
+        // syscall catch
+        pc_ = prevPC;
+        return;
+      }
       // If fatal, return
       if (hasHalted_) return;
     }
@@ -83,9 +97,40 @@ void Core::tick() {
     // Execute & Write-back
     if (uop->isLoad()) {
       auto addresses = uop->generateAddresses();
+
+      if (rp_) {
+        for (const auto& rp : *rp_) {
+          for (const auto& address : addresses) {
+            if (rp.overlaps(address)) {
+              br_ = {BreakReason::Read, address.address,
+                     uop->getInstructionAddress()};
+              pc_ = prevPC;
+              return;
+            }
+          }
+        }
+      }
+
+      if (ap_) {
+        for (const auto& ap : *ap_) {
+          for (const auto& address : addresses) {
+            if (ap.overlaps(address)) {
+              br_ = {BreakReason::Access, address.address,
+                     uop->getInstructionAddress()};
+              pc_ = prevPC;
+              return;
+            }
+          }
+        }
+      }
+
       previousAddresses_.clear();
       if (uop->exceptionEncountered()) {
-        handleException(uop);
+        if (handleException(uop)) {
+          // syscall catch
+          pc_ = prevPC;
+          return;
+        }
         // If fatal, return
         if (hasHalted_) return;
       }
@@ -111,9 +156,40 @@ void Core::tick() {
       }
     } else if (uop->isStoreAddress()) {
       auto addresses = uop->generateAddresses();
+
+      if (wp_) {
+        for (const auto& wp : *wp_) {
+          for (const auto& address : addresses) {
+            if (wp.overlaps(address)) {
+              br_ = {BreakReason::Write, address.address,
+                     uop->getInstructionAddress()};
+              pc_ = prevPC;
+              return;
+            }
+          }
+        }
+      }
+
+      if (ap_) {
+        for (const auto& ap : *ap_) {
+          for (const auto& address : addresses) {
+            if (ap.overlaps(address)) {
+              br_ = {BreakReason::Access, address.address,
+                     uop->getInstructionAddress()};
+              pc_ = prevPC;
+              return;
+            }
+          }
+        }
+      }
+
       previousAddresses_.clear();
       if (uop->exceptionEncountered()) {
-        handleException(uop);
+        if (handleException(uop)) {
+          // syscall catch
+          pc_ = prevPC;
+          return;
+        }
         // If fatal, return
         if (hasHalted_) return;
       }
@@ -127,12 +203,28 @@ void Core::tick() {
         continue;
       }
     }
-    execute(uop);
+    if (execute(uop)) {
+      // syscall catch
+      pc_ = prevPC;
+      return;
+    }
     macroOp_.erase(macroOp_.begin());
   }
+
+  if ((step_from_ != nullptr) && (*step_from_)) {
+    if (pc_ != **step_from_) {
+      br_ = {BreakReason::Break, 0, pc_};
+    }
+  } else if (bp_ != nullptr) {
+    for (const auto bp : *bp_) {
+      if (bp == pc_) {
+        br_ = {BreakReason::Break, 0, pc_};
+        break;
+      }
+    }
+  }
+
   instructionsExecuted_++;
-  // Fetch memory for next cycle
-  instructionMemory_.requestRead({pc_, FETCH_SIZE});
 }
 
 bool Core::hasHalted() const { return hasHalted_; }
@@ -152,12 +244,11 @@ std::map<std::string, std::string> Core::getStats() const {
           {"branch.executed", std::to_string(branchesExecuted_)}};
 }
 
-void Core::execute(std::shared_ptr<Instruction>& uop) {
+bool Core::execute(std::shared_ptr<Instruction>& uop) {
   uop->execute();
 
   if (uop->exceptionEncountered()) {
-    handleException(uop);
-    return;
+    return handleException(uop);
   }
 
   if (uop->isStoreData()) {
@@ -177,11 +268,51 @@ void Core::execute(std::shared_ptr<Instruction>& uop) {
     auto reg = destinations[i];
     registerFileSet_.set(reg, results[i]);
   }
+
+  return false;
 }
 
-void Core::handleException(const std::shared_ptr<Instruction>& instruction) {
+bool Core::handleException(const std::shared_ptr<Instruction>& instruction) {
+  if (instruction->isSyscall()) {
+    const auto& isa = getISA();
+
+    const auto syscallID = getArchitecturalRegisterFileSet()
+                               .get(isa.getSyscallIDReg())
+                               .get<uint64_t>();
+
+    // hack to retrieve the exit code
+    if ((syscallID == 93) || (syscallID == 94)) {
+      exit_code_ = getArchitecturalRegisterFileSet()
+                       .get(isa.getExitCodeReg())
+                       .get<uint64_t>();
+    }
+
+    if ((syscalls_ != nullptr) && (*syscalls_) && (!current_syscall_)) {
+      if (std::any_of(
+              (*syscalls_)->cbegin(), (*syscalls_)->cend(),
+              [&](const auto syscall) { return syscall == syscallID; })) {
+        br_ = simeng::BreakReason{simeng::BreakReason::SyscallEntry, syscallID,
+                                  instruction->getNextInstructionAddress()};
+        brn_ =
+            simeng::BreakReason{simeng::BreakReason::SyscallReturn, syscallID,
+                                instruction->getNextInstructionAddress()};
+        current_syscall_ = syscallID;
+        return true;
+      }
+    }
+  }
+
   exceptionHandler_ = isa_.handleException(instruction, *this, dataMemory_);
   processExceptionHandler();
+
+  current_syscall_ = std::nullopt;
+
+  if (brn_) {
+    br_ = brn_;
+    brn_ = std::nullopt;
+  }
+
+  return false;
 }
 
 void Core::processExceptionHandler() {
@@ -213,6 +344,26 @@ void Core::setProgramCounter(uint64_t pc) {
   pc_ = pc;
   // may need to be removed when rebased on dev
   instructionMemory_.requestRead({pc_, FETCH_SIZE});
+}
+
+void Core::prepareBreakpoints(
+    const std::optional<uint64_t>* step_from, const std::vector<uint64_t>* bp,
+    const std::vector<simeng::memory::MemoryAccessTarget>* wp,
+    const std::vector<simeng::memory::MemoryAccessTarget>* rp,
+    const std::vector<simeng::memory::MemoryAccessTarget>* ap,
+    const std::optional<std::vector<uint64_t>>* syscalls) {
+  br_ = std::nullopt;
+
+  step_from_ = step_from;
+  bp_ = bp;
+  wp_ = wp;
+  rp_ = rp;
+  ap_ = ap;
+  syscalls_ = syscalls;
+}
+
+const std::optional<simeng::BreakReason> Core::getBreakReason() const {
+  return br_;
 }
 
 }  // namespace emulation

@@ -298,6 +298,37 @@ void Core::processExceptionHandler() {
     return;
   }
 
+  if (exceptionGeneratingInstruction_->isSyscall()) {
+    const auto& isa = getISA();
+
+    const auto syscallID = getArchitecturalRegisterFileSet()
+                               .get(isa.getSyscallIDReg())
+                               .get<uint64_t>();
+
+    // hack to retrieve the exit code
+    if ((syscallID == 93) || (syscallID == 94)) {
+      exit_code_ = getArchitecturalRegisterFileSet()
+                       .get(isa.getExitCodeReg())
+                       .get<uint64_t>();
+    }
+
+    if ((syscalls_ != nullptr) && (*syscalls_) && (!current_syscall_)) {
+      if (std::any_of(
+              (*syscalls_)->cbegin(), (*syscalls_)->cend(),
+              [&](const auto syscall) { return syscall == syscallID; })) {
+        reorderBuffer_.setBreakReasons(
+            simeng::BreakReason{
+                simeng::BreakReason::SyscallEntry, syscallID,
+                exceptionGeneratingInstruction_->getNextInstructionAddress()},
+            simeng::BreakReason{
+                simeng::BreakReason::SyscallReturn, syscallID,
+                exceptionGeneratingInstruction_->getNextInstructionAddress()});
+        current_syscall_ = syscallID;
+        return;
+      }
+    }
+  }
+
   bool success = exceptionHandler_->tick();
   if (!success) {
     // Exception handler requires further ticks to complete
@@ -314,6 +345,8 @@ void Core::processExceptionHandler() {
     fetchUnit_.updatePC(result.instructionAddress);
     applyStateChange(result.stateChange);
   }
+
+  current_syscall_ = std::nullopt;
 
   exceptionHandler_ = nullptr;
 }
@@ -379,17 +412,27 @@ void Core::flushIfNeeded() {
 }
 
 const uint64_t Core::getProgramCounter() const {
-  return reorderBuffer_.getPC();
+  // only useful to get the initial entrypoint
+  return fetchUnit_.getPC();
 }
 
 void Core::setProgramCounter(uint64_t pc) {
-  fetchUnit_.setPC(pc);
+  fetchUnit_.updatePC(pc);
   reorderBuffer_.clobberAfter(1, pc);
 }
 
-void Core::prepareBreakpoints(const std::optional<uint64_t>* step_from,
-                              const std::vector<uint64_t>* breakpoints) {
-  reorderBuffer_.prepareBreakpoints(step_from, breakpoints);
+void Core::prepareBreakpoints(
+    const std::optional<uint64_t>* step_from, const std::vector<uint64_t>* bp,
+    const std::vector<simeng::memory::MemoryAccessTarget>* wp,
+    const std::vector<simeng::memory::MemoryAccessTarget>* rp,
+    const std::vector<simeng::memory::MemoryAccessTarget>* ap,
+    const std::optional<std::vector<uint64_t>>* syscalls) {
+  reorderBuffer_.prepareBreakpoints(step_from, bp, wp, rp, ap);
+  syscalls_ = syscalls;
+}
+
+const std::optional<simeng::BreakReason> Core::getBreakReason() const {
+  return reorderBuffer_.getBreakReason();
 }
 
 }  // namespace outoforder

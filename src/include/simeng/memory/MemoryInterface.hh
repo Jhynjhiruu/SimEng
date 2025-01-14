@@ -41,8 +41,11 @@ class MemoryInterface {
   /** Returns true if there are any outstanding memory requests in-flight. */
   virtual bool hasPendingRequests() const = 0;
 
-  /** Retrieves a pointer to the memory array. */
-  virtual char* getMemoryPointer() const = 0;
+  /** Read from memory directly. */
+  virtual void rawRead(void* dest, uint64_t src, uint16_t size) const = 0;
+
+  /** Write to memory directly. */
+  virtual void rawWrite(uint64_t dest, void* src, uint16_t size) = 0;
 
   /** Tick the memory interface to allow it to process internal tasks.
    *

@@ -175,6 +175,11 @@ class Instruction : public simeng::Instruction {
    * latency and throughput, and the set of ports which support it. */
   void setExecutionInfo(const ExecutionInfo& info) override;
 
+  /** Get whether this instruction is a syscall. */
+  bool isSyscall() const override {
+    return getException() == InstructionException::SupervisorCall;
+  };
+
   /** Retrieve the instruction's metadata. */
   const InstructionMetadata& getMetadata() const;
 

@@ -30,7 +30,7 @@ struct ExceptionResult {
  * cycle until complete. */
 class ExceptionHandler {
  public:
-  virtual ~ExceptionHandler(){};
+  virtual ~ExceptionHandler() {};
   /** Tick the exception handler to progress handling of the exception. Should
    * return `false` if the exception requires further handling, or `true` once
    * complete. */
@@ -46,7 +46,7 @@ class Architecture {
  public:
   Architecture(kernel::Linux& kernel) : linux_(kernel) {}
 
-  virtual ~Architecture(){};
+  virtual ~Architecture() {};
 
   /** Attempt to pre-decode from `bytesAvailable` bytes of instruction memory.
    * Writes into the supplied macro-op vector, and returns the number of bytes
@@ -84,6 +84,12 @@ class Architecture {
   /** Get the architecture-specific vector size (currently only for (S)VL on
    * AArch64) */
   virtual const std::tuple<uint64_t, uint64_t> getVectorSize() const = 0;
+
+  /** Get the register which holds the syscall ID in this ISA. */
+  virtual const Register getSyscallIDReg() const = 0;
+
+  /** Get the register which holds the exit code in this ISA. */
+  virtual const Register getExitCodeReg() const = 0;
 
  protected:
   /** A Capstone decoding library handle, for decoding instructions. */

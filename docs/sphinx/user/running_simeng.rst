@@ -11,6 +11,11 @@ If no arguments are passed to SimEng, default options are used. The default conf
 
 Whilst a configuration file can be specified without a program (will use default program), a specified program must be accompanied by a configuration file.
 
+Using GDB
+---------
+
+If SimEng has been compiled with GDB support, additional arguments can be passed to the program in order to start the GDB stub and manipulate its functionality. Run SimEng with the flag ``--help`` to view these arguments; for most use cases it suffices to use the ``--use-gdb`` flag (or, optionally, its short form ``-g``) to set up the stub with default settings.
+
 Simulation Output
 -----------------
 

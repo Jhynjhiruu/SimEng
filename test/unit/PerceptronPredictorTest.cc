@@ -8,6 +8,7 @@ class PerceptronPredictorTest : public testing::Test {
  public:
   PerceptronPredictorTest() : uop(new MockInstruction), uopPtr(uop) {
     uop->setInstructionAddress(0);
+    uop->setNextInstructionAddress(4);
   }
 
  protected:

@@ -58,6 +58,16 @@ class Architecture : public arch::Architecture {
     return std::make_tuple(0, 0);
   }
 
+  /** Get the register which holds the syscall ID in this ISA. */
+  const Register getSyscallIDReg() const override {
+    return {RegisterType::GENERAL, 17};
+  }
+
+  /** Get the register which holds the exit code in this ISA. */
+  const Register getExitCodeReg() const override {
+    return {RegisterType::GENERAL, 10};
+  };
+
  private:
   /** Retrieve an ExecutionInfo object for the requested instruction. If a
    * opcode-based override has been defined for the latency and/or

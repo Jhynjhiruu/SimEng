@@ -47,7 +47,14 @@ void FlatMemoryInterface::clearCompletedReads() { completedReads_.clear(); }
 
 bool FlatMemoryInterface::hasPendingRequests() const { return false; }
 
-char* FlatMemoryInterface::getMemoryPointer() const { return memory_; }
+void FlatMemoryInterface::rawRead(void* dest, uint64_t src,
+                                  uint16_t size) const {
+  memcpy(dest, memory_ + src, size);
+}
+
+void FlatMemoryInterface::rawWrite(uint64_t dest, void* src, uint16_t size) {
+  memcpy(memory_ + dest, src, size);
+}
 
 void FlatMemoryInterface::tick() {}
 

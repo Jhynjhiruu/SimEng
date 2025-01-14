@@ -18,6 +18,10 @@ class MockCore : public Core {
   MOCK_CONST_METHOD0(getInstructionsRetiredCount, uint64_t());
   MOCK_CONST_METHOD0(getSystemTimer, uint64_t());
   MOCK_CONST_METHOD0(getStats, std::map<std::string, std::string>());
+  MOCK_CONST_METHOD0(getProgramCounter, const uint64_t());
+  MOCK_METHOD1(setProgramCounter, void(uint64_t pc));
+  MOCK_CONST_METHOD0(getBreakReason,
+                     const std::optional<simeng::BreakReason>());
 };
 
 }  // namespace simeng

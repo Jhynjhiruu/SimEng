@@ -80,7 +80,15 @@ bool FixedLatencyMemoryInterface::hasPendingRequests() const {
   return !pendingRequests_.empty();
 }
 
-char* FixedLatencyMemoryInterface::getMemoryPointer() const { return memory_; }
+void FixedLatencyMemoryInterface::rawRead(void* dest, uint64_t src,
+                                          uint16_t size) const {
+  memcpy(dest, memory_ + src, size);
+}
+
+void FixedLatencyMemoryInterface::rawWrite(uint64_t dest, void* src,
+                                           uint16_t size) {
+  memcpy(memory_ + dest, src, size);
+}
 
 }  // namespace memory
 }  // namespace simeng

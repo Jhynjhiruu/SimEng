@@ -7,7 +7,7 @@ if( YAML_OUTPUT )
 endif()
 
 if (SIMENG_ENABLE_GDB)
-    add_subdirectory(gdb)
+    target_compile_definitions(simeng PUBLIC -DGDB_ENABLED)
 endif()
 
 target_include_directories(simeng PUBLIC ${PROJECT_SOURCE_DIR}/src/lib)

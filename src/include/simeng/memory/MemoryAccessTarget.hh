@@ -20,6 +20,12 @@ struct MemoryAccessTarget {
   bool operator!=(const MemoryAccessTarget& other) const {
     return !(other == *this);
   }
+
+  bool overlaps(const MemoryAccessTarget& other) const {
+    return ((address <= other.address) && ((address + size) > other.address)) ||
+           ((other.address <= address) &&
+            ((other.address + other.size) > address));
+  }
 };
 
 }  // namespace memory

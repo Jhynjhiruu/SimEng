@@ -100,6 +100,7 @@ TEST_F(RiscVInstructionTest, validInsn) {
   const std::vector<uint16_t> ports = {1, 2, 3};
   insn.setExecutionInfo({3, 4, ports});
   insn.setInstructionAddress(0x48);
+  insn.setNextInstructionAddress(0x4C);
   insn.setInstructionId(11);
   insn.setSequenceId(12);
 
@@ -119,6 +120,7 @@ TEST_F(RiscVInstructionTest, validInsn) {
   EXPECT_EQ(insn.getGeneratedAddresses().size(), 0);
   EXPECT_EQ(insn.getGroup(), InstructionGroups::INT_DIV_OR_SQRT);
   EXPECT_EQ(insn.getInstructionAddress(), 0x48);
+  EXPECT_EQ(insn.getNextInstructionAddress(), 0x4C);
   EXPECT_EQ(insn.getInstructionId(), 11);
   EXPECT_EQ(insn.getKnownOffset(), 0);
   EXPECT_EQ(insn.getLatency(), 3);
@@ -161,6 +163,7 @@ TEST_F(RiscVInstructionTest, invalidInsn_1) {
   const std::vector<uint16_t> ports = {};
   insn.setExecutionInfo({1, 1, ports});
   insn.setInstructionAddress(0x44);
+  insn.setNextInstructionAddress(0x48);
   insn.setInstructionId(13);
   insn.setSequenceId(14);
 
@@ -181,6 +184,7 @@ TEST_F(RiscVInstructionTest, invalidInsn_1) {
   // Default Group
   EXPECT_EQ(insn.getGroup(), InstructionGroups::INT_SIMPLE_ARTH);
   EXPECT_EQ(insn.getInstructionAddress(), 0x44);
+  EXPECT_EQ(insn.getNextInstructionAddress(), 0x48);
   EXPECT_EQ(insn.getInstructionId(), 13);
   EXPECT_EQ(insn.getKnownOffset(), 0);
   EXPECT_EQ(insn.getLatency(), 1);
@@ -225,6 +229,7 @@ TEST_F(RiscVInstructionTest, invalidInsn_2) {
   const std::vector<uint16_t> ports = {};
   insn.setExecutionInfo({1, 1, ports});
   insn.setInstructionAddress(0x43);
+  insn.setNextInstructionAddress(0x44);
   insn.setInstructionId(15);
   insn.setSequenceId(16);
 
@@ -245,6 +250,7 @@ TEST_F(RiscVInstructionTest, invalidInsn_2) {
   // Default Group
   EXPECT_EQ(insn.getGroup(), InstructionGroups::INT_SIMPLE_ARTH);
   EXPECT_EQ(insn.getInstructionAddress(), 0x43);
+  EXPECT_EQ(insn.getNextInstructionAddress(), 0x44);
   EXPECT_EQ(insn.getInstructionId(), 15);
   EXPECT_EQ(insn.getKnownOffset(), 0);
   EXPECT_EQ(insn.getLatency(), 1);
@@ -440,6 +446,7 @@ TEST_F(RiscVInstructionTest, earlyBranchMisprediction) {
   // Insn is `div	a3, a3, a0`
   Instruction insn = Instruction(arch, *divMetadata.get());
   insn.setInstructionAddress(64);
+  insn.setNextInstructionAddress(68);
 
   // Check initial state of an instruction's branch related options
   BranchPrediction pred = {false, 0};
@@ -449,7 +456,7 @@ TEST_F(RiscVInstructionTest, earlyBranchMisprediction) {
   EXPECT_EQ(insn.getBranchAddress(), 0);
   EXPECT_EQ(insn.getBranchType(), BranchType::Unknown);
   EXPECT_FALSE(insn.isBranch());
-  std::tuple<bool, uint64_t> tup = {false, insn.getInstructionAddress() + 4};
+  std::tuple<bool, uint64_t> tup = {false, insn.getNextInstructionAddress()};
   EXPECT_EQ(insn.checkEarlyBranchMisprediction(), tup);
 
   // Set prediction and ensure expected state changes / outcomes are seen
@@ -463,7 +470,7 @@ TEST_F(RiscVInstructionTest, earlyBranchMisprediction) {
   // Check logic of `checkEarlyBranchMisprediction` which is different for
   // non-branch instructions
   EXPECT_FALSE(insn.isBranch());
-  tup = {true, insn.getInstructionAddress() + 4};
+  tup = {true, insn.getNextInstructionAddress()};
   EXPECT_EQ(insn.checkEarlyBranchMisprediction(), tup);
 }
 
@@ -472,6 +479,7 @@ TEST_F(RiscVInstructionTest, correctPred_taken) {
   // insn is `bgeu a5, a4, -86`
   Instruction insn = Instruction(arch, *bgeuMetadata.get());
   insn.setInstructionAddress(400);
+  insn.setNextInstructionAddress(404);
 
   // Check initial state of an instruction's branch related options
   BranchPrediction pred = {false, 0};
@@ -502,6 +510,7 @@ TEST_F(RiscVInstructionTest, correctPred_notTaken) {
   // insn is `bgeu a5, a4, -86`
   Instruction insn = Instruction(arch, *bgeuMetadata.get());
   insn.setInstructionAddress(400);
+  insn.setNextInstructionAddress(404);
 
   // Check initial state of an instruction's branch related options
   BranchPrediction pred = {false, 0};
@@ -533,6 +542,7 @@ TEST_F(RiscVInstructionTest, incorrectPred_target) {
   // insn is `bgeu a5, a4, -86`
   Instruction insn = Instruction(arch, *bgeuMetadata.get());
   insn.setInstructionAddress(400);
+  insn.setNextInstructionAddress(404);
 
   // Check initial state of an instruction's branch related options
   BranchPrediction pred = {false, 0};
@@ -564,6 +574,7 @@ TEST_F(RiscVInstructionTest, incorrectPred_taken) {
   // insn is `bgeu a5, a4, -86`
   Instruction insn = Instruction(arch, *bgeuMetadata.get());
   insn.setInstructionAddress(400);
+  insn.setNextInstructionAddress(404);
 
   // Check initial state of an instruction's branch related options
   BranchPrediction pred = {false, 0};

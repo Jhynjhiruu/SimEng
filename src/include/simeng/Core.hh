@@ -12,6 +12,23 @@
 
 namespace simeng {
 
+struct BreakReason {
+  enum {
+    Break,
+    Write,
+    Read,
+    Access,
+    SyscallEntry,
+    SyscallReturn,
+  } reason;
+  uint64_t info;
+  uint64_t pc;
+
+  bool isWatch() const {
+    return (reason == Write) || (reason == Read) || (reason == Access);
+  }
+};
+
 namespace arch {
 // Forward declare Architecture and ExceptionHandler classes.
 class Architecture;
@@ -64,8 +81,21 @@ class Core {
   const arch::Architecture& getISA() const { return isa_; }
 
   /** Prepare the necessary breakpoint state for the following run. */
-  virtual void prepareBreakpoints(const std::optional<uint64_t>* step_from,
-                                  const std::vector<uint64_t>* breakpoints) {}
+  virtual void prepareBreakpoints(
+      const std::optional<uint64_t>* step_from = nullptr,
+      const std::vector<uint64_t>* bp = nullptr,
+      const std::vector<simeng::memory::MemoryAccessTarget>* wp = nullptr,
+      const std::vector<simeng::memory::MemoryAccessTarget>* rp = nullptr,
+      const std::vector<simeng::memory::MemoryAccessTarget>* ap = nullptr,
+      const std::optional<std::vector<uint64_t>>* syscalls = nullptr) {}
+
+  /** Retrieve the reason for a break, if any. */
+  virtual const std::optional<simeng::BreakReason> getBreakReason() const = 0;
+
+  /** Retrieve the exit code. Result only valid after exit() syscall has been entered. */
+  virtual uint64_t getExitCode() const {
+    return 0;
+  }
 
   /** Apply changes to the process state. */
   void applyStateChange(const arch::ProcessStateChange& change) const {

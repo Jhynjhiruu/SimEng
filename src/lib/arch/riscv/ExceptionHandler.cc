@@ -27,10 +27,10 @@ bool ExceptionHandler::init() {
   InstructionException exception = instruction_.getException();
   const auto& registerFileSet = core_.getArchitecturalRegisterFileSet();
 
-  if (exception == InstructionException::SupervisorCall) {
+  if (instruction_.isSyscall()) {
     // Retrieve syscall ID held in register a7
     auto syscallId =
-        registerFileSet.get({RegisterType::GENERAL, 17}).get<uint64_t>();
+        registerFileSet.get(core_.getISA().getSyscallIDReg()).get<uint64_t>();
 
     ProcessStateChange stateChange;
     switch (syscallId) {
@@ -850,7 +850,7 @@ bool ExceptionHandler::readBufferThen(uint64_t ptr, uint64_t length,
 }
 
 bool ExceptionHandler::concludeSyscall(ProcessStateChange& stateChange) {
-  uint64_t nextInstructionAddress = instruction_.getInstructionAddress() + 4;
+  uint64_t nextInstructionAddress = instruction_.getNextInstructionAddress();
   result_ = {false, nextInstructionAddress, stateChange};
   return true;
 }

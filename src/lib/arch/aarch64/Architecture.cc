@@ -148,6 +148,7 @@ uint8_t Architecture::predecode(const uint8_t* ptr, uint16_t bytesAvailable,
     uop = std::make_shared<Instruction>(*this, metadataCache_.front(),
                                         InstructionException::MisalignedPC);
     uop->setInstructionAddress(instructionAddress);
+    uop->setNextInstructionAddress(instructionAddress + 1);
     // Return non-zero value to avoid fatal error
     return 1;
   }
@@ -197,6 +198,7 @@ uint8_t Architecture::predecode(const uint8_t* ptr, uint16_t bytesAvailable,
   // Set instruction address and branch prediction for each micro-op generated
   for (int i = 0; i < num_ops; i++) {
     output[i]->setInstructionAddress(instructionAddress);
+    output[i]->setNextInstructionAddress(instructionAddress + 4);
   }
 
   return 4;

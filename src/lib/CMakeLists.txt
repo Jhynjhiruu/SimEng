@@ -47,6 +47,10 @@ set(SIMENG_SOURCES
     SpecialFileDirGen.cc
 )
 
+if (SIMENG_ENABLE_GDB)
+    list(APPEND SIMENG_SOURCES gdb/GDBStub.cc gdb/tinyxml2.cpp)
+endif()
+
 configure_file(${capstone_SOURCE_DIR}/arch/AArch64/AArch64GenInstrInfo.inc AArch64GenInstrInfo.inc COPYONLY)
 configure_file(${capstone_SOURCE_DIR}/arch/RISCV/RISCVGenInstrInfo.inc RISCVGenInstrInfo.inc COPYONLY)
 

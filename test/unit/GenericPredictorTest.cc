@@ -8,6 +8,7 @@ class GenericPredictorTest : public testing::Test {
  public:
   GenericPredictorTest() : uop(new MockInstruction), uopPtr(uop) {
     uop->setInstructionAddress(0);
+    uop->setNextInstructionAddress(4);
   }
 
  protected:

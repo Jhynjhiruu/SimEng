@@ -64,6 +64,7 @@ TEST_F(RiscVExceptionHandlerTest, testSyscall) {
   std::shared_ptr<Instruction> insn = std::make_shared<Instruction>(
       arch, static_cast<Instruction*>(uops[0].get())->getMetadata(), exception);
   insn->setInstructionAddress(insnAddr);
+  insn->setNextInstructionAddress(insnAddr + 4);
 
   // Setup register file for `uname` syscall (chosen as minimal functionality)
   archRegFileSet.set(R0, RegisterValue(1234, 8));
@@ -81,7 +82,7 @@ TEST_F(RiscVExceptionHandlerTest, testSyscall) {
 
   EXPECT_TRUE(retVal);
   EXPECT_FALSE(result.fatal);
-  EXPECT_EQ(result.instructionAddress, insnAddr + 4);
+  EXPECT_EQ(result.instructionAddress, insn->getNextInstructionAddress());
   EXPECT_EQ(result.stateChange.type, ChangeType::REPLACEMENT);
   std::vector<Register> modRegs = {R0};
   EXPECT_EQ(result.stateChange.modifiedRegisters, modRegs);

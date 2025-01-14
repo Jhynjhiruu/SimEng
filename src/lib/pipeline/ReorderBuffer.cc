@@ -79,7 +79,7 @@ unsigned int ReorderBuffer::commit(uint64_t maxCommitSize) {
       std::min(static_cast<size_t>(maxCommitSize), buffer_.size());
 
   unsigned int n;
-  for (n = 0; n < maxCommits; n++) {
+  for (n = 0; (n < maxCommits) && (!br_); n++) {
     auto& uop = buffer_[0];
     if (!uop->canCommit()) {
       break;
@@ -89,16 +89,25 @@ unsigned int ReorderBuffer::commit(uint64_t maxCommitSize) {
     // problems?
 
     const auto pc = uop->getInstructionAddress();
+    pc_ = pc;
+
+    if (brn_) {
+      br_ = brn_;
+      brn_ = std::nullopt;
+      break;
+    }
 
     if ((step_from_ != nullptr) && (*step_from_)) {
       if (pc != **step_from_) {
-        pc_ = pc;
+        br_ = simeng::BreakReason{simeng::BreakReason::Break, 0, pc};
+        // breakpoints hit before the instruction is executed
         break;
       }
-    } else if (breakpoints_ != nullptr) {
-      if (std::any_of(breakpoints_->cbegin(), breakpoints_->cend(),
+    } else if (bp_ != nullptr) {
+      if (std::any_of(bp_->cbegin(), bp_->cend(),
                       [&](const auto bp) { return pc == bp; })) {
-        pc_ = pc;
+        br_ = simeng::BreakReason{simeng::BreakReason::Break, 0, pc};
+        // breakpoints hit before the instruction is executed
         break;
       }
     }
@@ -118,9 +127,57 @@ unsigned int ReorderBuffer::commit(uint64_t maxCommitSize) {
 
     // If it's a memory op, commit the entry at the head of the respective queue
     if (uop->isLoad()) {
+      const auto addresses = uop->getGeneratedAddresses();
+
+      if (rp_) {
+        for (const auto& rp : *rp_) {
+          for (const auto& address : addresses) {
+            if (rp.overlaps(address)) {
+              br_ = {BreakReason::Read, address.address,
+                     uop->getInstructionAddress()};
+            }
+          }
+        }
+      }
+
+      if (ap_) {
+        for (const auto& ap : *ap_) {
+          for (const auto& address : addresses) {
+            if (ap.overlaps(address)) {
+              br_ = {BreakReason::Access, address.address,
+                     uop->getInstructionAddress()};
+            }
+          }
+        }
+      }
+
       lsq_.commitLoad(uop);
     }
     if (uop->isStoreAddress()) {
+      auto addresses = uop->generateAddresses();
+
+      if (wp_) {
+        for (const auto& wp : *wp_) {
+          for (const auto& address : addresses) {
+            if (wp.overlaps(address)) {
+              br_ = {BreakReason::Write, address.address,
+                     uop->getInstructionAddress()};
+            }
+          }
+        }
+      }
+
+      if (ap_) {
+        for (const auto& ap : *ap_) {
+          for (const auto& address : addresses) {
+            if (ap.overlaps(address)) {
+              br_ = {BreakReason::Access, address.address,
+                     uop->getInstructionAddress()};
+            }
+          }
+        }
+      }
+
       bool violationFound = lsq_.commitStore(uop);
       if (violationFound) {
         loadViolations_++;
@@ -230,10 +287,28 @@ void ReorderBuffer::clobberAfter(uint64_t id, uint64_t pc) {
 }
 
 void ReorderBuffer::prepareBreakpoints(
-    const std::optional<uint64_t>* step_from,
-    const std::vector<uint64_t>* breakpoints) {
+    const std::optional<uint64_t>* step_from, const std::vector<uint64_t>* bp,
+    const std::vector<simeng::memory::MemoryAccessTarget>* wp,
+    const std::vector<simeng::memory::MemoryAccessTarget>* rp,
+    const std::vector<simeng::memory::MemoryAccessTarget>* ap) {
+  br_ = std::nullopt;
+
   step_from_ = step_from;
-  breakpoints_ = breakpoints;
+  bp_ = bp;
+  wp_ = wp;
+  rp_ = rp;
+  ap_ = ap;
+}
+
+const std::optional<simeng::BreakReason> ReorderBuffer::getBreakReason() const {
+  return br_;
+}
+
+void ReorderBuffer::setBreakReasons(
+    std::optional<simeng::BreakReason> reason,
+    std::optional<simeng::BreakReason> next_reason) {
+  br_ = reason;
+  brn_ = next_reason;
 }
 
 const uint64_t ReorderBuffer::getPC() const { return pc_; }

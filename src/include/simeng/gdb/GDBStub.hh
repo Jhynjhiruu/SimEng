@@ -62,6 +62,9 @@ class GDBStub {
    * to send it commands via the provided port. */
   uint64_t run();
 
+  /** Read single register */
+  std::string handleReadRegister(const std::string& reg);
+
  private:
   /** The CoreInstance used for the simulation. */
   simeng::CoreInstance& coreInstance_;
@@ -91,6 +94,12 @@ class GDBStub {
   /** Breakpoints for a step operation */
   std::vector<Breakpoint> step_breakpoints;
 
+  /** Syscalls to catch */
+  std::optional<std::vector<uint64_t>> syscalls_ = std::nullopt;
+
+  /** Last known PC (may be fake) */
+  uint64_t pc_;
+
   /** Run until a breakpoint or end-of-program is reached */
   std::string runUntilStop(
       const std::optional<uint64_t>& step_from = std::nullopt);
@@ -100,9 +109,6 @@ class GDBStub {
 
   /** Continue program */
   std::string handleContinue(const std::string& addr);
-
-  /** Read single register */
-  std::string handleReadRegister(const std::string& reg);
 
   /** Read all registers */
   std::string handleReadRegisters();

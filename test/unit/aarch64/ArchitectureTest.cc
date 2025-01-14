@@ -96,6 +96,7 @@ TEST_F(AArch64ArchitectureTest, predecode) {
   Instruction* aarch64Insn = reinterpret_cast<Instruction*>(output[0].get());
   EXPECT_EQ(result, 1);
   EXPECT_EQ(aarch64Insn->getInstructionAddress(), 0x7);
+  EXPECT_EQ(aarch64Insn->getNextInstructionAddress(), 0x7 + result);
   EXPECT_EQ(aarch64Insn->exceptionEncountered(), true);
   EXPECT_EQ(aarch64Insn->getException(), InstructionException::MisalignedPC);
 
@@ -106,6 +107,7 @@ TEST_F(AArch64ArchitectureTest, predecode) {
   aarch64Insn = reinterpret_cast<Instruction*>(output[0].get());
   EXPECT_EQ(result, 4);
   EXPECT_EQ(aarch64Insn->getInstructionAddress(), 0x8);
+  EXPECT_EQ(aarch64Insn->getNextInstructionAddress(), 0x8 + result);
   EXPECT_EQ(aarch64Insn->exceptionEncountered(), true);
   EXPECT_EQ(aarch64Insn->getException(),
             InstructionException::EncodingUnallocated);
@@ -116,6 +118,7 @@ TEST_F(AArch64ArchitectureTest, predecode) {
                            output);
   EXPECT_EQ(result, 4);
   EXPECT_EQ(output[0]->getInstructionAddress(), 0x4);
+  EXPECT_EQ(output[0]->getNextInstructionAddress(), 0x4 + result);
   EXPECT_EQ(output[0]->exceptionEncountered(), false);
 }
 
@@ -137,6 +140,7 @@ TEST_F(AArch64ArchitectureTest, handleException) {
   Instruction* aarch64Insn = reinterpret_cast<Instruction*>(insn[0].get());
   EXPECT_EQ(bytes, 4);
   EXPECT_EQ(aarch64Insn->getInstructionAddress(), 0x4);
+  EXPECT_EQ(aarch64Insn->getNextInstructionAddress(), 0x4 + bytes);
   EXPECT_EQ(aarch64Insn->exceptionEncountered(), true);
   EXPECT_EQ(aarch64Insn->getException(),
             InstructionException::EncodingUnallocated);
@@ -222,6 +226,7 @@ TEST_F(AArch64ArchitectureTest, getExecutionInfo) {
   Instruction* aarch64Insn = reinterpret_cast<Instruction*>(insn[0].get());
   EXPECT_EQ(bytes, 4);
   EXPECT_EQ(aarch64Insn->getInstructionAddress(), 0x4);
+  EXPECT_EQ(aarch64Insn->getNextInstructionAddress(), 0x4 + bytes);
   EXPECT_EQ(aarch64Insn->exceptionEncountered(), false);
 
   ExecutionInfo info = arch->getExecutionInfo(*aarch64Insn);

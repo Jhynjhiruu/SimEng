@@ -23,6 +23,9 @@ class MockArchitecture : public arch::Architecture {
   MOCK_CONST_METHOD0(getMinInstructionSize, uint8_t());
   MOCK_CONST_METHOD2(updateSystemTimerRegisters,
                      void(RegisterFileSet* regFile, const uint64_t iterations));
+  MOCK_CONST_METHOD0(getVectorSize, const std::tuple<uint64_t, uint64_t>());
+  MOCK_CONST_METHOD0(getSyscallIDReg, const Register());
+  MOCK_CONST_METHOD0(getExitCodeReg, const Register());
 };
 
 }  // namespace simeng

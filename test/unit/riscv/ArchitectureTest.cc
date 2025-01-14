@@ -77,6 +77,7 @@ TEST_F(RiscVArchitectureTest, predecode) {
                                    validInstrBytes.size(), 0x7, output);
   EXPECT_EQ(result, 1);
   EXPECT_EQ(output[0]->getInstructionAddress(), 0x7);
+  EXPECT_EQ(output[0]->getNextInstructionAddress(), 0x7 + result);
   EXPECT_EQ(output[0]->exceptionEncountered(), true);
 
   // Test that an invalid instruction returns instruction with an exception
@@ -85,6 +86,7 @@ TEST_F(RiscVArchitectureTest, predecode) {
                            0x8, output);
   EXPECT_EQ(result, 4);
   EXPECT_EQ(output[0]->getInstructionAddress(), 0x8);
+  EXPECT_EQ(output[0]->getNextInstructionAddress(), 0x8 + result);
   EXPECT_EQ(output[0]->exceptionEncountered(), true);
 
   // Test that an instruction can be properly decoded
@@ -93,6 +95,7 @@ TEST_F(RiscVArchitectureTest, predecode) {
                            output);
   EXPECT_EQ(result, 4);
   EXPECT_EQ(output[0]->getInstructionAddress(), 0x4);
+  EXPECT_EQ(output[0]->getNextInstructionAddress(), 0x4 + result);
   EXPECT_EQ(output[0]->exceptionEncountered(), false);
 }
 
@@ -113,6 +116,7 @@ TEST_F(RiscVArchitectureTest, handleException) {
                                   invalidInstrBytes.size(), 0x4, insn);
   EXPECT_EQ(bytes, 4);
   EXPECT_EQ(insn[0]->getInstructionAddress(), 0x4);
+  EXPECT_EQ(insn[0]->getNextInstructionAddress(), 0x4 + bytes);
   EXPECT_EQ(insn[0]->exceptionEncountered(), true);
 
   // Get Core

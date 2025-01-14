@@ -60,6 +60,8 @@ The main component provided by the simulator is a discrete processor core model,
 
 A future release of SimEng will support multi-core simulation by integrating with the SST.
 
+A basic GDB stub is provided, for debugging Arm-based programs using GDB.
+
 
 Talks and presentations
 -----------------------
@@ -94,6 +96,7 @@ While we have tried to minimise SimEng's dependencies to keep it as simple as po
 - `Rapid YAML <https://github.com/biojppm/rapidyaml>`_ - Parsing YAML configuration files
 - `GoogleTest <https://github.com/google/googletest>`_ - Framework for the test suites
 - `LLVM <https://github.com/llvm-mirror/llvm>`_ - Generation of binaries for use in the regression test suite
+- `TinyXML2 <https://github.com/leethomason/tinyxml2>`_ - Generation of XML description files in the GDB stub
 
 
 Contributors
@@ -127,6 +130,7 @@ Additional Contributors:
 - Tom Hepworth
 - Tom Lin
 - Will Robinson
+- Jay Parker
 
 Funding
 -------

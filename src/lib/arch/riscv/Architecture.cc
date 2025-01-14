@@ -169,6 +169,7 @@ uint8_t Architecture::predecode(const uint8_t* ptr, uint16_t bytesAvailable,
     uop = std::make_shared<Instruction>(*this, metadataCache_.front(),
                                         InstructionException::MisalignedPC);
     uop->setInstructionAddress(instructionAddress);
+    uop->setNextInstructionAddress(instructionAddress + 1);
     // Return non-zero value to avoid fatal error
     return 1;
   }
@@ -245,9 +246,11 @@ uint8_t Architecture::predecode(const uint8_t* ptr, uint16_t bytesAvailable,
     iter = decodeCache_.insert({insnEncoding, newInsn}).first;
   }
 
-  assert(((insnEncoding & 0b11) != 0b11
-              ? iter->second.getMetadata().getInsnLength() == 2
-              : iter->second.getMetadata().getInsnLength() == 4) &&
+  assert((insnSize == iter->second.getMetadata().getInsnLength()) && "That's not good!");
+
+  insnSize = iter->second.getMetadata().getInsnLength();
+
+  assert(((insnEncoding & 0b11) != 0b11 ? insnSize == 2 : insnSize == 4) &&
          "Predicted number of bytes don't match disassembled number of bytes");
 
   output.resize(1);
@@ -257,8 +260,9 @@ uint8_t Architecture::predecode(const uint8_t* ptr, uint16_t bytesAvailable,
   uop = std::make_shared<Instruction>(iter->second);
 
   uop->setInstructionAddress(instructionAddress);
+  uop->setNextInstructionAddress(instructionAddress + insnSize);
 
-  return iter->second.getMetadata().getInsnLength();
+  return insnSize;
 }
 
 int32_t Architecture::getSystemRegisterTag(uint16_t reg) const {

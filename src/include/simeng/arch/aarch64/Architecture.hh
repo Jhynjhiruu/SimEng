@@ -60,6 +60,16 @@ class Architecture : public arch::Architecture {
     return std::make_tuple(getVectorLength(), getStreamingVectorLength());
   }
 
+  /** Get the register which holds the syscall ID in this ISA. */
+  const Register getSyscallIDReg() const override {
+    return {RegisterType::GENERAL, 8};
+  }
+
+  /** Get the register which holds the exit code in this ISA. */
+  const Register getExitCodeReg() const override {
+    return {RegisterType::GENERAL, 0};
+  };
+
   /** Retrieve an ExecutionInfo object for the requested instruction. If a
    * opcode-based override has been defined for the latency and/or
    * port information, return that instead of the group-defined execution

@@ -72,9 +72,6 @@ class FetchUnit {
   /** Retrieve the current program counter value. */
   const uint64_t getPC() const;
 
-  /** Set a new program counter value. */
-  void setPC(uint64_t pc);
-
  private:
   /** An output buffer connecting this unit to the decode unit. */
   PipelineBuffer<MacroOp>& output_;

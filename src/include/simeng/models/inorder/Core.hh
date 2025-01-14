@@ -49,6 +49,9 @@ class Core : public simeng::Core {
   /** Set the program counter. */
   void setProgramCounter(uint64_t pc) override;
 
+  /** Retrieve the reason for a break, if any. */
+  const std::optional<simeng::BreakReason> getBreakReason() const override;
+
  private:
   /** Raise an exception to the core, providing the generating instruction. */
   void raiseException(const std::shared_ptr<Instruction>& instruction);

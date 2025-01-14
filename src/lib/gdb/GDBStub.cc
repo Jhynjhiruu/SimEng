@@ -1,4 +1,4 @@
-#include "simeng/GDBStub.hh"
+#include "simeng/gdb/GDBStub.hh"
 
 #include <netinet/in.h>
 #include <signal.h>
@@ -10,6 +10,25 @@
 
 #include "simeng/arch/Architecture.hh"
 #include "tinyxml2.h"
+
+// there are many things about this implementation that i am unsatisfied with -
+// particularly, the reliance on strings and the lack of good testing
+// infrastructure - but it's workable and mostly functional
+//
+// for information about the protocol, see:
+// https://sourceware.org/gdb/current/onlinedocs/gdb.html/Remote-Protocol.html
+//
+// this implementation supports arm and seems to work pretty well, but i have no
+// doubt that there are a ton of subtle bugs
+//
+// good places to do more work:
+//  - adding risc-v support
+//  - refactoring
+//  - checking whether memory and register writes are sound (i think they might
+//    not be, particularly out-of-order pc writes)
+//  - lldb support (lldb *claims* to support the gdb remote protocol, but in
+//    reality every implementation is slightly different and i wrote this one
+//    targeting gdb itself, so it doesn't work)
 
 // read buffer size
 #define BUF_SIZE (1000)
@@ -38,6 +57,8 @@ std::string SupportedFeature::format() const {
   }
 }
 
+// functions for converting between integers and hexadecimal strings, used in
+// various places to interface with the gdb protocol
 template <typename T>
 std::string int_to_hex(T i) {
   char* ptr;
@@ -46,6 +67,16 @@ std::string int_to_hex(T i) {
   const auto str = std::string{ptr, static_cast<size_t>(bytesWritten)};
   free(ptr);
   return str;
+}
+
+template <>
+std::string int_to_hex(uint64_t i) {
+  return int_to_hex((uint32_t)(i >> 32)) + int_to_hex((uint32_t)i);
+}
+
+template <>
+std::string int_to_hex(unsigned long long i) {
+  return int_to_hex((uint64_t)i);
 }
 
 template <typename T>
@@ -102,6 +133,7 @@ std::optional<std::array<char, N>> hex_to_vect_ne(const std::string& str) {
   return rv;
 }
 
+// features of the gdb protocol that we support
 const SupportedFeature supported_features[] = {
     {
         "QStartNoAckMode",
@@ -109,8 +141,17 @@ const SupportedFeature supported_features[] = {
     },
     {"PacketSize", int_to_hex(BUF_SIZE - 10)},
     {"hwbreak", std::nullopt},
+    {"swbreak", std::nullopt},
+    {"QCatchSyscalls", std::nullopt},
     {"qXfer:features:read", std::nullopt}};
 
+// we manipulate and store gdb protocol values and state as strings, because
+// doing it """properly""" would require a fairly complex data structure that i
+// wasn't comfortable writing in c++, so there are a few functions for
+// formatting other data to fit the protocol
+//
+// stripping out this infrastructure and replacing it with a proper type would
+// be a great first step in continuing this codebase
 template <typename T = uint16_t>
 std::string formatSignal(
     uint8_t signal,
@@ -162,6 +203,8 @@ std::string formatError(uint8_t error_num) {
 
 std::string formatExit(uint8_t status) { return "W" + int_to_hex(status); }
 
+// this function really ought to be in the c++ standard library, but it doesn't
+// seem to be
 std::vector<std::string> splitBy(const std::string& param_string,
                                  const char by) {
   std::vector<std::string> rv;
@@ -181,11 +224,10 @@ std::vector<std::string> splitBy(const std::string& param_string,
   return rv;
 }
 
-std::tuple<std::shared_ptr<simeng::Instruction>, uint8_t> getCurrentInstruction(
-    const simeng::CoreInstance& coreInstance) {
-  const auto core = coreInstance.getCore();
-  const auto instructionMemory = coreInstance.getInstructionMemory();
-  const auto pc = core->getProgramCounter();
+/*std::tuple<std::shared_ptr<simeng::Instruction>, uint8_t>
+getCurrentInstruction( const simeng::CoreInstance& coreInstance) { const auto
+core = coreInstance.getCore(); const auto instructionMemory =
+coreInstance.getInstructionMemory(); const auto pc = core->getProgramCounter();
   const auto& isa = core->getISA();
 
   const auto ptr = instructionMemory->getMemoryPointer();
@@ -199,8 +241,10 @@ std::tuple<std::shared_ptr<simeng::Instruction>, uint8_t> getCurrentInstruction(
 
   // TODO: is this always valid?
   return std::make_tuple(macroOp[0], bytesRead);
-}
+}*/
 
+// a few different operations act differently depending on what type of register
+// is being used, so "size" isn't strictly accurate
 enum RegSize {
   Byte,
   Short,
@@ -240,7 +284,8 @@ unsigned int getBitsize(RegSize size) {
       return 64;
     case SVG:
       return 64;
-    case ZA:
+    case ZA:  // this register is more complex to handle and doesn't necessarily
+              // have a defined bit size
       return 0;
     default:
       return 0;
@@ -249,15 +294,23 @@ unsigned int getBitsize(RegSize size) {
 
 using RegList = std::vector<std::tuple<simeng::Register, RegSize>>;
 
+// we build an abstract representation of the processor's registers to be able
+// to generically interface with gdb
 struct TargetSpec {
   std::string spec;
   RegList regs;
 };
 
 RegList::value_type makeReg(uint8_t type, uint16_t tag, RegSize size) {
-  return std::make_tuple((simeng::Register){type, tag}, size);
+  const simeng::Register reg = {type, tag};
+  return std::make_tuple(reg, size);
 }
 
+// while building the abstract representation, we build a target description xml
+// to send to gdb
+//
+// see:
+// https://sourceware.org/gdb/current/onlinedocs/gdb.html/Target-Description-Format.html
 void addReg(
     tinyxml2::XMLPrinter& printer, RegList& regs, uint8_t type, uint16_t tag,
     const std::string& name, RegSize size,
@@ -335,6 +388,7 @@ void addVector(tinyxml2::XMLPrinter& printer, const std::string& name,
   printer.CloseElement(true);
 }
 
+// add the arm base registers
 void deriveCore(tinyxml2::XMLPrinter& printer, RegList& regs) {
   printer.OpenElement("feature");
 
@@ -364,6 +418,7 @@ void deriveCore(tinyxml2::XMLPrinter& printer, RegList& regs) {
   printer.CloseElement();
 }
 
+// add the sve extension registers
 void deriveSVE(tinyxml2::XMLPrinter& printer, RegList& regs) {
   printer.OpenElement("feature");
 
@@ -473,6 +528,7 @@ void deriveSVE(tinyxml2::XMLPrinter& printer, RegList& regs) {
   printer.CloseElement();
 }
 
+// add the sme extension registers
 void deriveSME(tinyxml2::XMLPrinter& printer, RegList& regs,
                unsigned int rows) {
   printer.OpenElement("feature");
@@ -497,6 +553,7 @@ void deriveSME(tinyxml2::XMLPrinter& printer, RegList& regs,
   printer.CloseElement();
 }
 
+// build the spec for the arm chip we emulate using the above functions
 TargetSpec deriveSpec() {
   TargetSpec rv;
 
@@ -513,6 +570,8 @@ TargetSpec deriveSpec() {
 
   deriveSVE(printer, rv.regs);
 
+  // this version of the code assumes that za is always of size 256 - you might
+  // want to pass this in as a parameter
   deriveSME(printer, rv.regs, 256);
 
   printer.CloseElement();
@@ -526,11 +585,13 @@ TargetSpec target_spec;
 
 void checkSpec(const simeng::CoreInstance& coreInstance) {
   if (target_spec.spec.empty()) {
-    const auto core = coreInstance.getCore();
-    const auto& isa = core->getISA();
+    // const auto core = coreInstance.getCore();
+    // const auto& isa = core->getISA();
 
-    const auto [_vl, svl] = isa.getVectorSize();
+    // const auto [_vl, svl] = isa.getVectorSize();
 
+    // this is where you would check which isa is being used, and derive the
+    // spec for risc-v instead of arm
     target_spec = deriveSpec();
 
     /*std::ofstream out("spec.xml");
@@ -539,6 +600,7 @@ void checkSpec(const simeng::CoreInstance& coreInstance) {
   }
 }
 
+// read a register from the core and format it as a string for gdb
 std::string readRegister(const RegList::value_type& which,
                          const simeng::ArchitecturalRegisterFileSet& registers,
                          uint64_t pc, uint64_t vl, uint64_t svl) {
@@ -628,6 +690,7 @@ std::string readRegister(const RegList::value_type& which,
   return rv;
 }
 
+// parse a string from gdb to a RegisterValue
 std::optional<simeng::RegisterValue> parseRegister(
     const RegList::value_type& which, const std::string& str) {
   const auto& [reg, size] = which;
@@ -721,7 +784,10 @@ std::optional<simeng::RegisterValue> parseRegister(
 namespace simeng {
 GDBStub::GDBStub(simeng::CoreInstance& coreInstance, bool verbose,
                  uint16_t port)
-    : coreInstance_(coreInstance), verbose_(verbose), port_(port) {}
+    : coreInstance_(coreInstance),
+      verbose_(verbose),
+      port_(port),
+      pc_(coreInstance.getCore()->getProgramCounter()) {}
 
 uint64_t GDBStub::run() {
   iterations = 0;
@@ -735,6 +801,9 @@ uint64_t GDBStub::run() {
 
   auto running = true;
 
+  // various shenanigans to be able to handle split packets
+  //
+  // this would be a good part to rewrite
   while (running) {
     auto packet = ParseResult{ExpectStart, "", 0, 0, 2};
 
@@ -764,6 +833,7 @@ uint64_t GDBStub::run() {
                   << "' (" << bufferString.size() << ")" << RESET << std::endl;
       }
 
+      // transmission error
       if (bufferString[0] == '-') {
         sendResponse(lastResponse);
         continue;
@@ -779,6 +849,7 @@ uint64_t GDBStub::run() {
         // '+' is an acknowledgement of successful receipt of message
         // '-' is a request for retransmission
 
+        // this is very janky
         while (!bufferString.empty()) {
           if (bufferString[0] == '+') {
             if (verbose_) {
@@ -852,6 +923,10 @@ uint64_t GDBStub::run() {
                 << commandParams << std::endl;
     }
 
+    // most of the basic gdb protocol is fundamentally single-character
+    // commands, but many of the more advanced and interesting features are not,
+    // so we start by looking at the first character and then parse further if
+    // needed
     switch (command[0]) {
       case '?': {
         rawResponse = handleHaltReason();
@@ -942,27 +1017,53 @@ uint64_t GDBStub::run() {
   return iterations;
 }
 
+// step the core until we hit a breakpoint, watchpoint, exit or have
+// single-stepped
+//
+// pass an address as the step_from parameter to single-step - we'll tick the
+// core until the program counter does not match the value of step_from
+//
+// pass nullopt to run until breakpoint etc.
 std::string GDBStub::runUntilStop(const std::optional<uint64_t>& step_from) {
   auto core = coreInstance_.getCore();
   const auto dataMemory = coreInstance_.getDataMemory();
 
-  std::vector<uint64_t> addresses;
-  for (const auto [_type, addr, _kind] : breakpoints) {
-    addresses.push_back(addr);
-  }
+  std::vector<uint64_t> bp;
+  std::vector<simeng::memory::MemoryAccessTarget> wp, rp, ap;
+  // split out the breakpoints list to breakpoints and the various kinds of
+  // watchpoint
+  for (const auto [type, addr, kind] : breakpoints) {
+    switch (type) {
+      case HardwareBP:
+        bp.push_back(addr);
+        break;
 
-  if (step_from) {
-    std::cout << "step from: " << int_to_hex(*step_from) << std::endl;
-  } else {
-    std::cout << "breakpoints:";
-    for (const auto bp : addresses) {
-      std::cout << "\n\t" << int_to_hex(bp);
+      case WriteWP:
+        wp.push_back(simeng::memory::MemoryAccessTarget{
+            addr, static_cast<uint16_t>(kind)});
+        break;
+
+      case ReadWP:
+        rp.push_back(simeng::memory::MemoryAccessTarget{
+            addr, static_cast<uint16_t>(kind)});
+        break;
+
+      case AccessWP:
+        ap.push_back(simeng::memory::MemoryAccessTarget{
+            addr, static_cast<uint16_t>(kind)});
+        break;
+
+      default:
+        // do nothing
+        break;
     }
-    std::cout << std::endl;
   }
 
   // TODO: currently, must manually ensure these are reset to nullptr after exit
-  core->prepareBreakpoints(&step_from, &addresses);
+  //
+  // the infrastructure for setting the core's breakpoints is a bit cursed but
+  // seems to work
+  core->prepareBreakpoints(&step_from, &bp, &wp, &rp, &ap, &syscalls_);
 
   while (!core->hasHalted() || dataMemory->hasPendingRequests()) {
     iterations++;
@@ -972,47 +1073,88 @@ std::string GDBStub::runUntilStop(const std::optional<uint64_t>& step_from) {
     core->tick();
     dataMemory->tick();
 
+    /*
     const auto pc = core->getProgramCounter();
 
     // only check breakpoints if we're not single-stepping
     if (step_from) {
       if (pc != *step_from) {
-        core->prepareBreakpoints(nullptr, nullptr);
+        core->prepareBreakpoints();
         return formatSignal(SIGTRAP, {std::make_tuple("hwbreak", "")});
       }
     } else {
       for (const auto [type, addr, kind] : breakpoints) {
         if (type == HardwareBP) {
           if (addr == pc) {
-            core->prepareBreakpoints(nullptr, nullptr);
+            core->prepareBreakpoints();
             return formatSignal(SIGTRAP, {std::make_tuple("hwbreak", "")});
           }
         }
       }
     }
+    */
+
+    // if nothing happened, this will be nullopt
+    const auto reason = core->getBreakReason();
+
+    if (reason) {
+      core->prepareBreakpoints();
+
+      pc_ = reason->pc;
+
+      switch (reason->reason) {
+        case BreakReason::Break:
+          return formatSignal(SIGTRAP, {std::make_tuple("hwbreak", "")});
+
+        case BreakReason::Write:
+          return formatSignal(
+              SIGTRAP, {std::make_tuple("watch", int_to_hex(reason->info))});
+
+        case BreakReason::Read:
+          return formatSignal(
+              SIGTRAP, {std::make_tuple("rwatch", int_to_hex(reason->info))});
+
+        case BreakReason::Access:
+          return formatSignal(
+              SIGTRAP, {std::make_tuple("awatch", int_to_hex(reason->info))});
+
+        case BreakReason::SyscallEntry:
+          return formatSignal(
+              SIGTRAP,
+              {std::make_tuple("syscall_entry", int_to_hex(reason->info))});
+
+        case BreakReason::SyscallReturn:
+          return formatSignal(
+              SIGTRAP,
+              {std::make_tuple("syscall_return", int_to_hex(reason->info))});
+      }
+    }
   }
 
-  core->prepareBreakpoints(nullptr, nullptr);
+  // clean up the breakpoints (important!)
+  core->prepareBreakpoints();
 
-  // TODO: get real exit status
-  return formatExit(0);
+  return formatExit(core->getExitCode());
 }
 
+// '?'
 std::string GDBStub::handleHaltReason() {
   // for now, assume breakpoint
   return formatSignal(SIGTRAP, {std::make_tuple("hwbreak", "")});
 }
 
+// 'c'
 std::string GDBStub::handleContinue(const std::string& addr) {
   return runUntilStop();
 }
 
+// 'p'
 std::string GDBStub::handleReadRegister(const std::string& reg) {
   const auto core = coreInstance_.getCore();
   const auto& registers = core->getArchitecturalRegisterFileSet();
   const auto& isa = core->getISA();
 
-  const auto pc = core->getProgramCounter();
+  // const auto pc = core->getProgramCounter();
   const auto [vl, svl] = isa.getVectorSize();
 
   int reg_num;
@@ -1026,7 +1168,7 @@ std::string GDBStub::handleReadRegister(const std::string& reg) {
     return formatError("invalid single register number");
   }
 
-  if ((reg_num < 0) || (reg_num >= target_spec.regs.size())) {
+  if ((reg_num < 0) || ((unsigned int)reg_num >= target_spec.regs.size())) {
     if (verbose_) {
       std::cerr << RED << "[SimEng:GDBStub] Reg num of range: " << reg_num
                 << RESET << std::endl;
@@ -1034,15 +1176,18 @@ std::string GDBStub::handleReadRegister(const std::string& reg) {
     return formatError("single register number out of range");
   }
 
-  return readRegister(target_spec.regs[reg_num], registers, pc, vl, svl);
+  // because we generated the target spec and the target description together,
+  // the index gdb provides will match the target spec index
+  return readRegister(target_spec.regs[reg_num], registers, pc_, vl, svl);
 }
 
+// 'g'
 std::string GDBStub::handleReadRegisters() {
   const auto core = coreInstance_.getCore();
   const auto& registers = core->getArchitecturalRegisterFileSet();
   const auto& isa = core->getISA();
 
-  const auto pc = core->getProgramCounter();
+  // const auto pc = core->getProgramCounter();
   const auto [vl, svl] = isa.getVectorSize();
 
   checkSpec(coreInstance_);
@@ -1050,16 +1195,17 @@ std::string GDBStub::handleReadRegisters() {
   std::string rv;
 
   for (const auto& reg : target_spec.regs) {
-    rv += readRegister(reg, registers, pc, vl, svl);
+    rv += readRegister(reg, registers, pc_, vl, svl);
   }
 
   return rv;
 }
 
+// 'P'
 std::string GDBStub::handleWriteRegister(
     const std::string& raw_register_value) {
   auto core = coreInstance_.getCore();
-  auto& registers = core->getArchitecturalRegisterFileSet();
+  // auto& registers = core->getArchitecturalRegisterFileSet();
   const auto& isa = core->getISA();
   const auto [vl, svl] = isa.getVectorSize();
 
@@ -1086,7 +1232,7 @@ std::string GDBStub::handleWriteRegister(
     return formatError("invalid single register number");
   }
 
-  if ((reg_num < 0) || (reg_num >= target_spec.regs.size())) {
+  if ((reg_num < 0) || ((unsigned int)reg_num >= target_spec.regs.size())) {
     if (verbose_) {
       std::cerr << RED << "[SimEng:GDBStub] Reg num of range: " << reg_num
                 << RESET << std::endl;
@@ -1098,6 +1244,7 @@ std::string GDBStub::handleWriteRegister(
 
   const auto [reg, size] = reg_size;
 
+  // special-case the registers that are a bit of a pain to deal with
   switch (size) {
     case PC: {
       const auto value = hex_to_int_ne<uint64_t>(register_value[1]);
@@ -1167,12 +1314,13 @@ std::string GDBStub::handleWriteRegister(
   return "OK";
 }
 
+// 'G'
 std::string GDBStub::handleWriteRegisters(const std::string& register_values) {
   auto core = coreInstance_.getCore();
-  auto& registers = core->getArchitecturalRegisterFileSet();
+  // auto& registers = core->getArchitecturalRegisterFileSet();
   const auto& isa = core->getISA();
 
-  const auto& reg_layout = simeng::config::SimInfo::getArchRegStruct();
+  // const auto& reg_layout = simeng::config::SimInfo::getArchRegStruct();
 
   const auto error = [&] {
     if (verbose_) {
@@ -1258,6 +1406,7 @@ std::string GDBStub::handleWriteRegisters(const std::string& register_values) {
   return "OK";
 }
 
+// 'm'
 std::string GDBStub::handleReadMemory(const std::string& raw_params) {
   const auto params = splitBy(raw_params, ',');
 
@@ -1294,11 +1443,7 @@ std::string GDBStub::handleReadMemory(const std::string& raw_params) {
     return formatError(2);
   };
 
-  const char* const memoryPointer =
-      coreInstance_.getDataMemory()->getMemoryPointer() + startAddress;
-
-  // TODO: stack overflow on large reads?
-  uint8_t buffer[numberOfBytes];
+  const auto buffer = new uint8_t[numberOfBytes];
 
   if (verbose_) {
     std::cout << "[SimEng:GDBStub]    Reading " << numberOfBytes
@@ -1306,17 +1451,23 @@ std::string GDBStub::handleReadMemory(const std::string& raw_params) {
               << std::endl;
   }
 
-  memcpy(buffer, memoryPointer, numberOfBytes);
+  // don't go through the access latency infrastructure
+  coreInstance_.getDataMemory()->rawRead(buffer, startAddress, numberOfBytes);
 
   std::string rv;
-  for (const auto byte : buffer) {
-    rv += int_to_hex(byte);
+  for (unsigned int i = 0; i < numberOfBytes; i++) {
+    rv += int_to_hex(buffer[i]);
   }
+
+  delete[] buffer;
 
   return rv;
 }
+
+// 'M'
 std::string GDBStub::handleWriteMemory(const std::string& raw_params) {
   auto core = coreInstance_.getCore();
+  const auto dataMemory = coreInstance_.getDataMemory();
 
   const auto data = splitBy(raw_params, ':');
 
@@ -1373,8 +1524,7 @@ std::string GDBStub::handleWriteMemory(const std::string& raw_params) {
     return formatError(4);
   }
 
-  // TODO: stack overflow on large writes?
-  char buffer[numberOfBytes];
+  const auto buffer = new uint8_t[numberOfBytes];
 
   try {
     for (size_t i = 0; i < numberOfBytes; i++) {
@@ -1397,20 +1547,19 @@ std::string GDBStub::handleWriteMemory(const std::string& raw_params) {
   std::vector<memory::MemoryAccessTarget> targets;
   std::vector<RegisterValue> values;
 
-  for (auto i = 0; i < numberOfBytes; i += UINT16_MAX) {
+  for (unsigned long long i = 0; (unsigned)i < numberOfBytes; i += UINT16_MAX) {
     const auto remaining = numberOfBytes - i;
     const auto len = static_cast<uint16_t>(
         (remaining <= UINT16_MAX) ? remaining : UINT16_MAX);
-    targets.push_back(memory::MemoryAccessTarget{startAddress + i, len});
-    values.push_back(RegisterValue(buffer + i, len));
+    dataMemory->rawWrite(startAddress + i, buffer + i, len);
   }
 
-  core->applyStateChange(arch::ProcessStateChange{
-      arch::ChangeType::REPLACEMENT, {}, {}, targets, values});
+  delete[] buffer;
 
   return "OK";
 }
 
+// 'q'
 std::string GDBStub::handleQuery(const std::string& query) {
   // parse out the query
   // any number of any character except :, optionally followed by : and then any
@@ -1492,6 +1641,7 @@ std::string GDBStub::handleQuery(const std::string& query) {
   }
 }
 
+// 'Q'
 std::string GDBStub::handleSet(const std::string& set) {
   // parse out the set
   // any number of any character except :, optionally followed by : and then any
@@ -1510,6 +1660,59 @@ std::string GDBStub::handleSet(const std::string& set) {
     if (set_type == "StartNoAckMode") {
       ack_mode = Transition;
       return "OK";
+    } else if (set_type == "CatchSyscalls") {
+      if (set_params) {
+        const auto params = splitBy(*set_params, ';');
+
+        if (params.size() == 1) {
+          if (params[0] == "0") {
+            syscalls_ = std::nullopt;
+          } else if (params[0] == "1") {
+            syscalls_ = {};
+          } else {
+            if (verbose_) {
+              std::cerr << RED
+                        << "[SimEng:GDBStub] Invalid enable option in set "
+                           "'CatchSyscalls'"
+                        << RESET << std::endl;
+            }
+            return "";
+          }
+        } else {
+          std::vector<uint64_t> calls;
+
+          for (auto it = params.cbegin() + 1; it != params.cend(); it++) {
+            uint64_t num;
+
+            try {
+              num = std::stoull(params[1], nullptr, 16);
+            } catch (const std::exception& e) {
+              if (verbose_) {
+                std::cerr << RED
+                          << "[SimEng:GDBStub] Invalid syscall number in set "
+                             "'CatchSyscalls'"
+                          << RESET << std::endl;
+              }
+              return "";
+            };
+
+            calls.push_back(num);
+          }
+
+          syscalls_ = calls;
+        }
+
+        return "OK";
+      } else {
+        if (verbose_) {
+          std::cerr
+              << RED
+              << "[SimEng:GDBStub] 'CatchSyscalls' set requires parameters"
+              << RESET << std::endl;
+        }
+        return "";
+      }
+      return "";
     } else {
       if (verbose_) {
         std::cerr << RED << "[SimEng:GDBStub] Unsupported set type '"
@@ -1526,15 +1729,18 @@ std::string GDBStub::handleSet(const std::string& set) {
   }
 }
 
+// 's'
 std::string GDBStub::handleStep(const std::string& addr) {
   // auto [op, size] = getCurrentInstruction(coreInstance_);
 
   const auto core = coreInstance_.getCore();
-  const auto pc = core->getProgramCounter();
+  // const auto pc = core->getProgramCounter();
 
-  return runUntilStop(pc);
+  // single-step from the current pc
+  return runUntilStop(pc_);
 }
 
+// 'z'
 std::string GDBStub::handleRemoveBreakpoint(const std::string& raw_params) {
   const auto params = splitBy(raw_params, ',');
 
@@ -1590,8 +1796,9 @@ std::string GDBStub::handleRemoveBreakpoint(const std::string& raw_params) {
 
     bool found = false;
     for (auto it = breakpoints.begin(); it < breakpoints.end(); it++) {
-      if (*it ==
-          std::make_tuple(static_cast<BreakpointType>(type), address, kind)) {
+      // if (*it == Breakpoint{static_cast<BreakpointType>(type), address,
+      // kind}) {
+      if ((it->addr == address) && (it->kind == kind) && (it->type == type)) {
         breakpoints.erase(it);
 
         found = true;
@@ -1611,6 +1818,7 @@ std::string GDBStub::handleRemoveBreakpoint(const std::string& raw_params) {
   }
 }
 
+// 'Z'
 std::string GDBStub::handleAddBreakpoint(const std::string& raw_params) {
   const auto params = splitBy(raw_params, ',');
 
@@ -1721,8 +1929,8 @@ std::string GDBStub::queryFeatures(const std::vector<std::string>& params) {
 
   checkSpec(coreInstance_);
 
-  const auto max_len = target_spec.spec.size() - offset;
-  if (length > max_len) {
+  const unsigned int max_len = target_spec.spec.size() - offset;
+  if ((unsigned int)length > max_len) {
     length = max_len;
   }
 
@@ -1753,6 +1961,15 @@ std::string GDBStub::queryFeatures(const std::vector<std::string>& params) {
   }
 }
 
+// packets are encoded in a simple ASCII-based format so that they can be
+// transferred over 7-bit connections, except for some later command types that
+// just shove binary data over the connection and hope for the best
+//
+// parsing it kind of sucks, especially since we have to handle partial packets
+// that can be resumed later
+//
+// see:
+// https://sourceware.org/gdb/current/onlinedocs/gdb.html/Overview.html#Overview
 std::optional<ParseResult> GDBStub::decodePacket(
     const std::string& encodedPacket, ParseResult result) {
   for (const auto& c : encodedPacket) {
@@ -1831,28 +2048,20 @@ std::optional<ParseResult> GDBStub::decodePacket(
       }
       case Checksum: {
         result.receivedChecksum <<= 4;
-        switch (c) {
-          case '0' ... '9': {
-            result.receivedChecksum |= c - '0';
-            break;
+        if ((c >= '0') && (c <= '9')) {
+          result.receivedChecksum |= c - '0';
+        } else if ((c >= 'A') && (c <= 'F')) {
+          result.receivedChecksum |= c - 'A' + 10;
+        } else if ((c >= 'a') && (c <= 'f')) {
+          result.receivedChecksum |= c - 'a' + 10;
+        } else {
+          if (verbose_) {
+            std::cerr << RED << "[SimEng:GDBStub] Invalid character '" << c
+                      << "' in checksum" << RESET << std::endl;
           }
-          case 'A' ... 'F': {
-            result.receivedChecksum |= c - 'A' + 10;
-            break;
-          }
-          case 'a' ... 'f': {
-            result.receivedChecksum |= c - 'a' + 10;
-            break;
-          }
-          default: {
-            if (verbose_) {
-              std::cerr << RED << "[SimEng:GDBStub] Invalid character '" << c
-                        << "' in checksum" << RESET << std::endl;
-            }
 
-            // return error
-            return std::nullopt;
-          }
+          // return error
+          return std::nullopt;
         }
 
         result.checksumRemaining--;
@@ -1884,10 +2093,11 @@ std::optional<ParseResult> GDBStub::decodePacket(
   return result;
 }
 
+// encode a string into the same format, with run-length encoding to save on
+// size (incoming packets from gdb will never use rle, and it's optional
+// for outgoing packets)
 std::string GDBStub::encodePacket(const std::string& response) {
-  // naïve approach: don't handle run-length encoding
-
-  uint8_t checksum;
+  uint8_t checksum = 0;
   std::string rv;
 
   auto calcChar = [&](const auto c) {
@@ -1897,7 +2107,11 @@ std::string GDBStub::encodePacket(const std::string& response) {
 
   rv += '$';
 
-  for (const auto& c : response) {
+  auto rle_char = '*';
+
+  for (size_t i = 0; i < response.length(); i++) {
+    const auto c = response[i];
+
     switch (c) {
       case '#':
       case '$':
@@ -1905,11 +2119,38 @@ std::string GDBStub::encodePacket(const std::string& response) {
       case '*': {
         calcChar('}');
         calcChar(c ^ 0x20);
+        rle_char = '*';
         break;
       }
 
       default: {
-        calcChar(c);
+        if (((i + 2) < response.length()) &&
+            std::all_of(response.cbegin() + i, response.cbegin() + i + 3,
+                        [&](const auto c) { return c == rle_char; })) {
+          // worth doing RLE
+
+          uint8_t n = 3;
+          while (((i + n) < response.length()) &&
+                 (response[i + n] == rle_char) && (n < 97)) {
+            n++;
+          }
+
+          if ((n == 6) || (n == 7)) {
+            // cannot do RLE
+            n = 5;
+          }
+
+          calcChar('*');
+          calcChar(n + 29);
+          rle_char = '*';
+
+          i += n - 1;
+        } else {
+          calcChar(c);
+
+          // comment out this line to disable rle
+          rle_char = c;
+        }
       }
     }
   }
@@ -1921,6 +2162,7 @@ std::string GDBStub::encodePacket(const std::string& response) {
   return rv;
 }
 
+// send a response to gdb
 void GDBStub::sendResponse(const std::string& response) {
   if (verbose_) {
     std::cout << GREEN << "[SimEng:GDBStub] -> " << response << RESET

@@ -43,7 +43,7 @@ With this configuration, the build files will be generated in a directory called
         .. Note::
                 LLVM versions greater than 14 or less than 8 are not supported. We'd recommend using LLVM 14.0.5 where possible as this has been verified by us to work correctly.
 
-        b. Two additional flags are available when building SimEng. Firstly is ``-DSIMENG_SANITIZE={ON, OFF}`` which adds a selection of sanitisation compilation flags (primarily used during the development of the framework). Secondly is ``-SIMENG_OPTIMIZE={ON, OFF}`` which attempts to optimise the framework's compilation for the host machine through a set of compiler flags and options.
+        b. Three additional flags are available when building SimEng. Firstly is ``-DSIMENG_SANITIZE={ON, OFF}`` which adds a selection of sanitisation compilation flags (primarily used during the development of the framework). Secondly is ``-DSIMENG_OPTIMIZE={ON, OFF}`` which attempts to optimise the framework's compilation for the host machine through a set of compiler flags and options. Thirdly is ``-DSIMENG_ENABLE_GDB={ON, OFF}`` which enables or disables the GDB stub and related code.
 
 We recommend using the `Ninja <https://ninja-build.org/>`_ build system for faster builds, especially if not using pre-built LLVM libraries. After installation, it can be enabled through the addition of the ``-GNinja`` flag in the above CMake build command.
 

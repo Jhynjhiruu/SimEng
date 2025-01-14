@@ -273,7 +273,5 @@ void FetchUnit::flushLoopBuffer() {
 
 const uint64_t FetchUnit::getPC() const { return pc_; }
 
-void FetchUnit::setPC(uint64_t pc) { pc_ = pc; }
-
 }  // namespace pipeline
 }  // namespace simeng

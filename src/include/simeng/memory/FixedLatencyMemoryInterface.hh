@@ -62,8 +62,11 @@ class FixedLatencyMemoryInterface : public MemoryInterface {
   /** Returns true if there are any outstanding memory requests in-flight. */
   bool hasPendingRequests() const override;
 
-  /** Retrieves a pointer to the memory array. */
-  char* getMemoryPointer() const override;
+  /** Read from memory directly. */
+  void rawRead(void* dest, uint64_t src, uint16_t size) const override;
+
+  /** Write to memory directly. */
+  void rawWrite(uint64_t dest, void* src, uint16_t size) override;
 
   /** Tick the memory model to process the request queue. */
   void tick() override;

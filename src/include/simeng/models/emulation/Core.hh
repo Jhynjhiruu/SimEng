@@ -45,12 +45,28 @@ class Core : public simeng::Core {
   /** Set the program counter. */
   void setProgramCounter(uint64_t pc) override;
 
+  /** Prepare the necessary breakpoint state for the following run. */
+  void prepareBreakpoints(
+      const std::optional<uint64_t>* step_from = nullptr,
+      const std::vector<uint64_t>* bp = nullptr,
+      const std::vector<simeng::memory::MemoryAccessTarget>* wp = nullptr,
+      const std::vector<simeng::memory::MemoryAccessTarget>* rp = nullptr,
+      const std::vector<simeng::memory::MemoryAccessTarget>* ap = nullptr,
+      const std::optional<std::vector<uint64_t>>* syscalls = nullptr) override;
+
+  /** Retrieve the reason for a break, if any. */
+  const std::optional<simeng::BreakReason> getBreakReason() const override;
+
+  /** Retrieve the exit code. Result only valid after exit() syscall has been
+   * entered. */
+  uint64_t getExitCode() const override { return exit_code_; }
+
  private:
   /** Execute an instruction. */
-  void execute(std::shared_ptr<Instruction>& uop);
+  bool execute(std::shared_ptr<Instruction>& uop);
 
   /** Handle an encountered exception. */
-  void handleException(const std::shared_ptr<Instruction>& instruction);
+  bool handleException(const std::shared_ptr<Instruction>& instruction);
 
   /** Process an active exception handler. */
   void processExceptionHandler();
@@ -79,6 +95,36 @@ class Core : public simeng::Core {
 
   /** The number of branches executed. */
   uint64_t branchesExecuted_ = 0;
+
+  /** If present, break when the program counter doesn't match this value. */
+  const std::optional<uint64_t>* step_from_ = nullptr;
+
+  /** If present, break when the program counter matches any of these values. */
+  const std::vector<uint64_t>* bp_ = nullptr;
+
+  /** If present, break when writing to any of these addresses. */
+  const std::vector<simeng::memory::MemoryAccessTarget>* wp_ = nullptr;
+
+  /** If present, break when reading from any of these addresses. */
+  const std::vector<simeng::memory::MemoryAccessTarget>* rp_ = nullptr;
+
+  /** If present, break when accessing any of these addresses. */
+  const std::vector<simeng::memory::MemoryAccessTarget>* ap_ = nullptr;
+
+  /** If present, the syscalls to catch. */
+  const std::optional<std::vector<uint64_t>>* syscalls_ = nullptr;
+
+  /** The last reason for which a break occurred. */
+  std::optional<simeng::BreakReason> br_ = std::nullopt;
+
+  /** The next reason to break. */
+  std::optional<simeng::BreakReason> brn_ = std::nullopt;
+
+  /** If present, the syscall currently being caught. */
+  std::optional<uint64_t> current_syscall_ = std::nullopt;
+
+  /** Exit code. Only valid after exit() syscall has been entered. */
+  uint64_t exit_code_;
 };
 
 }  // namespace emulation

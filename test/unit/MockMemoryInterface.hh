@@ -20,6 +20,10 @@ class MockMemoryInterface : public memory::MemoryInterface {
 
   MOCK_CONST_METHOD0(hasPendingRequests, bool());
 
+  MOCK_CONST_METHOD3(rawRead, void(void* dest, uint64_t src, uint16_t len));
+
+  MOCK_METHOD3(rawWrite, void(uint64_t dest, void* src, uint16_t len));
+
   MOCK_METHOD0(tick, void());
 };
 

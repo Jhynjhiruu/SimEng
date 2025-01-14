@@ -56,8 +56,20 @@ class Core : public simeng::Core {
   void setProgramCounter(uint64_t pc) override;
 
   /** Prepare the necessary breakpoint state for the following run. */
-  void prepareBreakpoints(const std::optional<uint64_t>* step_from,
-                          const std::vector<uint64_t>* breakpoints) override;
+  void prepareBreakpoints(
+      const std::optional<uint64_t>* step_from = nullptr,
+      const std::vector<uint64_t>* bp = nullptr,
+      const std::vector<simeng::memory::MemoryAccessTarget>* wp = nullptr,
+      const std::vector<simeng::memory::MemoryAccessTarget>* rp = nullptr,
+      const std::vector<simeng::memory::MemoryAccessTarget>* ap = nullptr,
+      const std::optional<std::vector<uint64_t>>* syscalls = nullptr) override;
+
+  /** Retrieve the reason for a break, if any. */
+  const std::optional<simeng::BreakReason> getBreakReason() const override;
+
+  /** Retrieve the exit code. Result only valid after exit() syscall has been
+   * entered. */
+  uint64_t getExitCode() const override { return exit_code_; }
 
  private:
   /** Raise an exception to the core, providing the generating instruction. */
@@ -144,6 +156,15 @@ class Core : public simeng::Core {
 
   /** A pointer to the instruction responsible for generating the exception. */
   std::shared_ptr<Instruction> exceptionGeneratingInstruction_;
+
+  /** If present, the syscalls to catch. */
+  const std::optional<std::vector<uint64_t>>* syscalls_ = nullptr;
+
+  /** If present, the syscall currently being caught. */
+  std::optional<uint64_t> current_syscall_ = std::nullopt;
+
+  /** Exit code. Only valid after exit() syscall has been entered. */
+  uint64_t exit_code_;
 };
 
 }  // namespace outoforder

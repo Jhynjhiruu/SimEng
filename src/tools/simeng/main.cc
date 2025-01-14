@@ -8,8 +8,8 @@
 
 #include "simeng/Core.hh"
 #include "simeng/CoreInstance.hh"
-#include "simeng/GDBStub.hh"
 #include "simeng/config/SimInfo.hh"
+#include "simeng/gdb/GDBStub.hh"
 #include "simeng/memory/MemoryInterface.hh"
 #include "simeng/version.hh"
 

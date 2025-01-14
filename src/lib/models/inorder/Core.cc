@@ -317,7 +317,11 @@ void Core::readRegisters() {
 
 const uint64_t Core::getProgramCounter() const { return fetchUnit_.getPC(); }
 
-void Core::setProgramCounter(uint64_t pc) { fetchUnit_.setPC(pc); }
+void Core::setProgramCounter(uint64_t pc) { fetchUnit_.updatePC(pc); }
+
+const std::optional<simeng::BreakReason> Core::getBreakReason() const {
+  return std::nullopt;
+}
 
 }  // namespace inorder
 }  // namespace models

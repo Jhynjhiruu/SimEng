@@ -29,7 +29,7 @@ struct ExecutionInfo {
  * Each supported ISA should provide a derived implementation of this class. */
 class Instruction {
  public:
-  virtual ~Instruction(){};
+  virtual ~Instruction() {};
 
   /** Retrieve the source registers this instruction reads. */
   virtual const span<Register> getSourceRegisters() const = 0;
@@ -116,6 +116,9 @@ class Instruction {
    * latency and throughput, and the set of ports which support it. */
   virtual void setExecutionInfo(const ExecutionInfo& info) = 0;
 
+  /** Get whether this instruction is a syscall. */
+  virtual bool isSyscall() const = 0;
+
   /** Set this instruction's sequence ID. */
   void setSequenceId(uint64_t seqId) { sequenceId_ = seqId; }
 
@@ -135,6 +138,14 @@ class Instruction {
 
   /** Get this instruction's instruction memory address. */
   uint64_t getInstructionAddress() const { return instructionAddress_; }
+
+  /** Set this instruction's next instruction memory address. */
+  void setNextInstructionAddress(uint64_t address) {
+    nextInstructionAddress_ = address;
+  }
+
+  /** Get this instruction's next instruction memory address. */
+  uint64_t getNextInstructionAddress() const { return nextInstructionAddress_; }
 
   /** Supply a branch prediction. */
   void setBranchPrediction(BranchPrediction prediction) {
@@ -247,6 +258,9 @@ class Instruction {
 
   /** The location in memory of this instruction was decoded at. */
   uint64_t instructionAddress_ = 0;
+
+  /** The location in memory of the next instruction following this. */
+  uint64_t nextInstructionAddress_ = 0;
 
   // Execution
   /** Whether or not this instruction has been executed. */
